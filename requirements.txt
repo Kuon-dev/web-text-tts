@@ -1,0 +1,8 @@
+kokoro>=0.9
+torch
+numpy
+soundfile
+fastapi
+uvicorn
+pytest
+httpx

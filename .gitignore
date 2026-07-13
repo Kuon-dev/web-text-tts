@@ -1,0 +1,6 @@
+.venv/
+cache/
+novel.txt
+state.json
+__pycache__/
+.pytest_cache/
