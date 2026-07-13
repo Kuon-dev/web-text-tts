@@ -64,6 +64,7 @@ const $ = id => document.getElementById(id);
 const audio = new Audio();
 let doc = { doc_id: "", chunks: [], position: 0, voice: "", speed: 1 };
 let idx = 0, playing = false, failed = new Set();
+let playToken = 0;
 
 const audioUrl = cid => `/api/audio/${cid}`;
 
@@ -115,6 +116,7 @@ function markReady(ready) {
 }
 
 async function playCurrent(retries = 5) {
+  const token = ++playToken;
   if (idx >= doc.chunks.length) { playing = false; paint(); return; }
   paint();
   const cid = doc.chunks[idx].id;
@@ -124,8 +126,8 @@ async function playCurrent(retries = 5) {
     await audio.play();
     prefetch(idx + 1);
   } catch (err) {
-    if (!playing) return;
-    if (retries > 0) { setTimeout(() => playing && playCurrent(retries - 1), 2000); }
+    if (!playing || token !== playToken) return;
+    if (retries > 0) { setTimeout(() => { if (playing && token === playToken) playCurrent(retries - 1); }, 2000); }
     else { failed.add(cid); advance(); }
   }
 }
@@ -195,8 +197,13 @@ $("speed").oninput = e => {
 };
 $("speed").onchange = () => api("/api/state", { speed: doc.speed }).catch(() => {});
 $("voice").onchange = async e => {
-  const r = await api("/api/state", { voice: e.target.value });
-  if (r.rechunked) { const keep = idx; await loadDoc(); jump(keep); }
+  try {
+    const r = await api("/api/state", { voice: e.target.value });
+    if (r.rechunked) { const keep = idx; await loadDoc(); jump(keep); }
+  } catch (err) {
+    alert("Voice change failed — is the server running?");
+    e.target.value = doc.voice;
+  }
 };
 $("paste").onclick = () => { $("pastetext").value = ""; $("pastedlg").showModal(); };
 $("pastecancel").onclick = () => $("pastedlg").close();
@@ -205,8 +212,12 @@ $("pasteload").onclick = async () => {
   $("pastedlg").close();
   if (!text) return;
   audio.pause(); playing = false;
-  await loadDoc(await api("/api/doc", { text }));
-  playing = true; playCurrent();
+  try {
+    await loadDoc(await api("/api/doc", { text }));
+    playing = true; playCurrent();
+  } catch (err) {
+    alert("Failed to load chapter — is the server running?");
+  }
 };
 document.addEventListener("keydown", e => {
   if (["TEXTAREA", "INPUT", "SELECT", "BUTTON"].includes(e.target.tagName)) return;
