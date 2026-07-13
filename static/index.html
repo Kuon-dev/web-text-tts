@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>novel-tts</title>
+<style>
+  :root { --bg:#191a1f; --fg:#cfd2d8; --dim:#6b6f78; --hl:#2c3550; --hlb:#7aa2f7;
+          --bar:#101116; --accent:#7aa2f7; --fail:#f7768e; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--fg);
+         font:18px/1.75 Georgia, "Times New Roman", serif; }
+  #bar { position:fixed; top:0; left:0; right:0; z-index:10; background:var(--bar);
+         display:flex; gap:.6rem; align-items:center; padding:.5rem .9rem;
+         font:14px system-ui, sans-serif; border-bottom:1px solid #2a2c33; flex-wrap:wrap; }
+  #bar button, #bar select { background:#23252c; color:var(--fg); border:1px solid #3a3d46;
+         border-radius:6px; padding:.3rem .7rem; font:inherit; cursor:pointer; }
+  #bar button:hover { border-color: var(--accent); }
+  #play { min-width:5.5rem; }
+  #speedval { min-width:2.8rem; color:var(--dim); }
+  #progress { color:var(--dim); margin-left:auto; }
+  #text { max-width:44rem; margin:0 auto; padding:5.5rem 1.2rem 60vh; }
+  #text p { margin:0 0 1.1em; }
+  .chunk { cursor:pointer; border-radius:4px; padding:0 2px; }
+  .chunk:hover { background:#22242b; }
+  .chunk.pending { color:var(--dim); }
+  .chunk.current { background:var(--hl); box-shadow:0 0 0 1px var(--hlb); color:#e8ecf5; }
+  .chunk.failed { color:var(--fail); text-decoration:underline dotted; }
+  #empty { color:var(--dim); text-align:center; margin-top:20vh; font-family:system-ui; }
+  dialog { background:#1f2127; color:var(--fg); border:1px solid #3a3d46; border-radius:10px;
+           width:min(90vw,44rem); }
+  dialog::backdrop { background:#000a; }
+  dialog textarea { width:100%; height:50vh; background:#14151a; color:var(--fg);
+           border:1px solid #3a3d46; border-radius:6px; padding:.6rem; font:15px/1.5 Georgia, serif; }
+  dialog .row { display:flex; justify-content:flex-end; gap:.6rem; margin-top:.7rem; }
+  dialog button { background:var(--accent); color:#14151a; border:0; border-radius:6px;
+           padding:.45rem 1rem; font:14px system-ui; cursor:pointer; }
+  dialog button.ghost { background:#23252c; color:var(--fg); border:1px solid #3a3d46; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <button id="play">▶ Play</button>
+  <button id="prev" title="ArrowLeft">⏮</button>
+  <button id="next" title="ArrowRight">⏭</button>
+  <label>Speed <input id="speed" type="range" min="0.75" max="2" step="0.05" value="1"></label>
+  <span id="speedval">1.00×</span>
+  <select id="voice"></select>
+  <button id="paste">Paste chapter…</button>
+  <span id="progress"></span>
+</div>
+<div id="text"><div id="empty">Paste a chapter to begin.</div></div>
+<dialog id="pastedlg">
+  <h3 style="margin-top:0;font-family:system-ui">Paste chapter text</h3>
+  <textarea id="pastetext" placeholder="Paste the chapter here…"></textarea>
+  <div class="row">
+    <button class="ghost" id="pastecancel">Cancel</button>
+    <button id="pasteload">Load &amp; play</button>
+  </div>
+</dialog>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const audio = new Audio();
+let doc = { doc_id: "", chunks: [], position: 0, voice: "", speed: 1 };
+let idx = 0, playing = false, failed = new Set();
+
+const audioUrl = cid => `/api/audio/${cid}`;
+
+async function api(path, body) {
+  const resp = await fetch(path, body === undefined ? {} : {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!resp.ok) throw new Error(`${path}: ${resp.status}`);
+  return resp.json();
+}
+
+function render() {
+  const box = $("text");
+  box.innerHTML = "";
+  if (!doc.chunks.length) {
+    box.innerHTML = '<div id="empty">Paste a chapter to begin.</div>';
+    $("progress").textContent = "";
+    return;
+  }
+  let para = -1, p = null;
+  doc.chunks.forEach((c, i) => {
+    if (c.para !== para) { para = c.para; p = document.createElement("p"); box.appendChild(p); }
+    const span = document.createElement("span");
+    span.className = "chunk pending";
+    span.id = `c${i}`;
+    span.textContent = c.text + " ";
+    span.onclick = () => { jump(i); if (failed.has(c.id)) failed.delete(c.id); };
+    p.appendChild(span);
+  });
+  paint();
+}
+
+function paint() {
+  doc.chunks.forEach((c, i) => {
+    const el = $(`c${i}`);
+    el.classList.toggle("current", i === idx);
+    el.classList.toggle("failed", failed.has(c.id));
+  });
+  const cur = $(`c${idx}`);
+  if (cur) cur.scrollIntoView({ block: "center", behavior: "smooth" });
+  $("progress").textContent = `${idx + 1} / ${doc.chunks.length}`;
+  $("play").textContent = playing ? "⏸ Pause" : "▶ Play";
+}
+
+function markReady(ready) {
+  const readySet = new Set(ready);
+  doc.chunks.forEach((c, i) => $(`c${i}`).classList.toggle("pending", !readySet.has(c.id)));
+}
+
+async function playCurrent(retries = 5) {
+  if (idx >= doc.chunks.length) { playing = false; paint(); return; }
+  paint();
+  const cid = doc.chunks[idx].id;
+  audio.src = audioUrl(cid);
+  audio.playbackRate = doc.speed;
+  try {
+    await audio.play();
+    prefetch(idx + 1);
+  } catch (err) {
+    if (!playing) return;
+    if (retries > 0) { setTimeout(() => playing && playCurrent(retries - 1), 2000); }
+    else { failed.add(cid); advance(); }
+  }
+}
+
+function prefetch(i) {
+  if (i < doc.chunks.length) fetch(audioUrl(doc.chunks[i].id)).catch(() => {});
+}
+
+function advance() {
+  if (idx + 1 >= doc.chunks.length) { playing = false; paint(); return; }
+  idx += 1;
+  savePosition();
+  if (playing) playCurrent(); else paint();
+}
+
+audio.addEventListener("ended", advance);
+
+function jump(i) {
+  idx = Math.max(0, Math.min(i, doc.chunks.length - 1));
+  savePosition();
+  if (playing) playCurrent(); else paint();
+}
+
+function togglePlay() {
+  if (!doc.chunks.length) return;
+  playing = !playing;
+  if (playing) playCurrent(); else { audio.pause(); paint(); }
+}
+
+let saveTimer = null;
+function savePosition() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => api("/api/state", { position: idx }).catch(() => {}), 300);
+}
+
+async function loadDoc(fresh) {
+  doc = fresh || await api("/api/doc");
+  idx = Math.min(doc.position, Math.max(doc.chunks.length - 1, 0));
+  failed = new Set();
+  $("speed").value = doc.speed;
+  $("speedval").textContent = Number(doc.speed).toFixed(2) + "×";
+  audio.playbackRate = doc.speed;
+  render();
+}
+
+async function loadVoices() {
+  const v = await api("/api/voices");
+  $("voice").innerHTML = v.voices.map(x => `<option${x === v.current ? " selected" : ""}>${x}</option>`).join("");
+}
+
+async function pollStatus() {
+  try {
+    const s = await api("/api/status");
+    if (s.doc_id !== doc.doc_id) { audio.pause(); playing = false; await loadDoc(); }
+    else { markReady(s.ready); s.failed.forEach(cid => failed.add(cid)); paint(); }
+  } catch (err) { /* server restarting; keep polling */ }
+  setTimeout(pollStatus, 2000);
+}
+
+$("play").onclick = togglePlay;
+$("prev").onclick = () => jump(idx - 1);
+$("next").onclick = () => jump(idx + 1);
+$("speed").oninput = e => {
+  doc.speed = Number(e.target.value);
+  $("speedval").textContent = doc.speed.toFixed(2) + "×";
+  audio.playbackRate = doc.speed;
+};
+$("speed").onchange = () => api("/api/state", { speed: doc.speed }).catch(() => {});
+$("voice").onchange = async e => {
+  const r = await api("/api/state", { voice: e.target.value });
+  if (r.rechunked) { const keep = idx; await loadDoc(); jump(keep); }
+};
+$("paste").onclick = () => { $("pastetext").value = ""; $("pastedlg").showModal(); };
+$("pastecancel").onclick = () => $("pastedlg").close();
+$("pasteload").onclick = async () => {
+  const text = $("pastetext").value.trim();
+  $("pastedlg").close();
+  if (!text) return;
+  audio.pause(); playing = false;
+  await loadDoc(await api("/api/doc", { text }));
+  playing = true; playCurrent();
+};
+document.addEventListener("keydown", e => {
+  if (["TEXTAREA", "INPUT", "SELECT", "BUTTON"].includes(e.target.tagName)) return;
+  if (e.code === "Space") { e.preventDefault(); togglePlay(); }
+  if (e.code === "ArrowLeft") jump(idx - 1);
+  if (e.code === "ArrowRight") jump(idx + 1);
+});
+
+loadVoices().then(() => loadDoc()).then(pollStatus);
+</script>
+</body>
+</html>
