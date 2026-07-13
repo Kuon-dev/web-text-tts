@@ -55,3 +55,14 @@ def test_quoted_dialogue_not_mangled():
     chunks = chunk_text(para)
     assert " ".join(c.text for c in chunks) == para  # no characters lost at split points
     assert all(len(c.text) <= MAX_CHUNK_CHARS for c in chunks)
+
+
+def test_curly_quoted_dialogue_splits_at_sentence_boundaries():
+    sent = "“We move at dawn.” The captain nodded slowly toward the distant gate. "
+    para = (sent * 8).strip()  # ~570 chars -> forces a split
+    chunks = chunk_text(para)
+    assert len(chunks) >= 2
+    assert " ".join(c.text for c in chunks) == para
+    assert all(len(c.text) <= MAX_CHUNK_CHARS for c in chunks)
+    # sentence-aware split: every chunk ends at a sentence boundary, not mid-sentence
+    assert all(c.text.endswith((".", ".”")) for c in chunks)

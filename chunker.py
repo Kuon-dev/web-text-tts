@@ -8,7 +8,7 @@ MAX_CHUNK_CHARS = 400
 # Split on whitespace after sentence-end punctuation (optionally followed by a
 # closing quote). Lookbehind-only so re.split consumes ONLY whitespace — the
 # quote stays attached to its sentence and no characters are lost.
-_SENTENCE_END = re.compile('(?:(?<=[.!?…])|(?<=[.!?…][""' + "''" + ']))\\s+')
+_SENTENCE_END = re.compile(r'(?:(?<=[.!?…])|(?<=[.!?…]["”’\']))\s+')
 
 
 @dataclass(frozen=True)
