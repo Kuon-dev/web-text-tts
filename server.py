@@ -45,6 +45,12 @@ class AppState:
                 loaded = json.loads(self.state_path.read_text())
                 if not isinstance(loaded, dict):
                     raise ValueError("state.json is not an object")
+                if not isinstance(loaded.get("positions"), dict):
+                    loaded.pop("positions", None)
+                if loaded.get("voice") not in VOICES:
+                    loaded.pop("voice", None)
+                if not isinstance(loaded.get("speed"), (int, float)) or isinstance(loaded.get("speed"), bool):
+                    loaded.pop("speed", None)
                 self.state.update(loaded)
             except (json.JSONDecodeError, OSError, ValueError, TypeError):
                 log.warning("state.json unreadable, starting fresh")
@@ -53,7 +59,8 @@ class AppState:
         self.state_path.write_text(json.dumps(self.state, indent=2))
 
     def position(self) -> int:
-        return self.state["positions"].get(self.doc_id, 0)
+        raw = self.state["positions"].get(self.doc_id, 0)
+        return max(0, min(raw, max(len(self.chunks) - 1, 0)))
 
     def load_doc(self, text: str | None = None):
         """(Re)chunk from `text` or from novel.txt. Under lock."""
@@ -72,7 +79,7 @@ class AppState:
             "doc_id": self.doc_id,
             "voice": voice,
             "speed": self.state["speed"],
-            "position": min(self.position(), max(len(self.chunks) - 1, 0)),
+            "position": self.position(),
             "chunks": [
                 {"id": chunk_id(voice, c.text), "text": c.text, "para": c.para}
                 for c in self.chunks

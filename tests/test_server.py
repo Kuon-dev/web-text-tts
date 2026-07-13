@@ -182,3 +182,19 @@ def test_state_json_with_wrong_shape_does_not_crash_startup(tmp_path):
     client, _ = make_client(tmp_path)
     body = client.get("/api/doc").json()
     assert body["voice"] == "af_heart"
+
+
+def test_position_survives_restart(tmp_path):
+    client, worker = make_client(tmp_path)
+    client.post("/api/doc", json={"text": "One.\nTwo.\nThree."})
+    client.post("/api/state", json={"position": 2})
+    # fresh app over the same data_dir = server restart
+    client2, _ = make_client(tmp_path)
+    assert client2.get("/api/doc").json()["position"] == 2
+
+
+def test_malformed_state_fields_fall_back(tmp_path):
+    (tmp_path / "state.json").write_text('{"positions": null, "voice": "not_a_voice", "speed": "fast"}')
+    client, _ = make_client(tmp_path)
+    body = client.get("/api/doc").json()
+    assert body["voice"] == "af_heart" and body["speed"] == 1.0

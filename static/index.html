@@ -234,7 +234,7 @@ document.addEventListener("keydown", e => {
   if (e.code === "ArrowRight") jump(idx + 1);
 });
 
-loadVoices().then(() => loadDoc()).then(pollStatus);
+loadVoices().then(() => loadDoc()).catch(() => {}).finally(pollStatus);
 </script>
 </body>
 </html>
