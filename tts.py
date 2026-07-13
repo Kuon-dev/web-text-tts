@@ -145,6 +145,7 @@ class TTSWorker:
                 tmp.rename(self.path(cid))
                 self._enforce_cache_cap()
                 with self._cond:
+                    self._attempts.pop(cid, None)
                     if cid in self._events:
                         self._events[cid].set()
             except Exception:

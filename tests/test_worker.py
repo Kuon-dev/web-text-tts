@@ -77,3 +77,17 @@ def test_set_doc_resets_and_only_generates_lookahead_window(tmp_path):
     assert not worker.path(cids[15]).exists()  # beyond position+8
     worker.set_position(12)
     assert wait_until(lambda: worker.path(cids[15]).exists())
+
+
+def test_evicted_chunks_always_regenerate(tmp_path):
+    # cache eviction of a successfully generated chunk must not consume retry attempts
+    chunks = make_chunks(1)
+    worker = TTSWorker(tmp_path, FakeEngine())
+    worker.set_doc(chunks, "af_heart")
+    cid = chunk_id("af_heart", chunks[0].text)
+    for _ in range(3):  # evict more times than MAX_ATTEMPTS
+        assert wait_until(lambda: worker.path(cid).exists())
+        worker.path(cid).unlink()
+        worker.set_position(0)  # nudge the worker loop
+    assert wait_until(lambda: worker.path(cid).exists())
+    assert worker.status()["failed"] == []
