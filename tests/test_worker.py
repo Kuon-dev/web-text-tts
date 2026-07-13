@@ -79,6 +79,29 @@ def test_set_doc_resets_and_only_generates_lookahead_window(tmp_path):
     assert wait_until(lambda: worker.path(cids[15]).exists())
 
 
+def test_poison_request_does_not_loop_or_block_later_requests(tmp_path):
+    chunks = [Chunk(text="Bad one.", para=0), Chunk(text="Good one.", para=1)]
+    engine = FakeEngine(fail_texts={"Bad one."})
+    worker = TTSWorker(tmp_path, engine)
+    worker.set_doc(chunks, "af_heart")
+    bad = chunk_id("af_heart", "Bad one.")
+    good = chunk_id("af_heart", "Good one.")
+    worker.request(bad)  # re-arms attempts once: at most 2 more tries
+    event = worker.request(good)
+    assert event.wait(5.0)          # good chunk still gets served
+    assert worker.path(good).exists()
+    time.sleep(0.3)
+    assert engine.calls.count("Bad one.") <= 4   # bounded, not thousands
+    assert bad in worker.status()["failed"]
+
+
+def test_wordless_text_synthesizes_silence():
+    from tts import KokoroEngine, SAMPLE_RATE
+    engine = KokoroEngine.__new__(KokoroEngine)  # skip __init__ (no torch/model needed)
+    audio = engine.synthesize("◆ ◆ ◆", "af_heart")
+    assert len(audio) > 0 and not audio.any()
+
+
 def test_evicted_chunks_always_regenerate(tmp_path):
     # cache eviction of a successfully generated chunk must not consume retry attempts
     chunks = make_chunks(1)

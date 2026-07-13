@@ -118,8 +118,9 @@ function markReady(ready) {
 async function playCurrent(retries = 5) {
   const token = ++playToken;
   if (idx >= doc.chunks.length) { playing = false; paint(); return; }
-  paint();
   const cid = doc.chunks[idx].id;
+  if (failed.has(cid)) { advance(); return; }
+  paint();
   audio.src = audioUrl(cid);
   audio.playbackRate = doc.speed;
   try {
@@ -154,7 +155,14 @@ function jump(i) {
 function togglePlay() {
   if (!doc.chunks.length) return;
   playing = !playing;
-  if (playing) playCurrent(); else { audio.pause(); paint(); }
+  if (!playing) { audio.pause(); paint(); return; }
+  const cid = doc.chunks[idx] && doc.chunks[idx].id;
+  if (cid && audio.src.endsWith(audioUrl(cid)) && audio.currentTime > 0 && !audio.ended) {
+    audio.play().catch(() => playCurrent());
+    paint();
+  } else {
+    playCurrent();
+  }
 }
 
 let saveTimer = null;

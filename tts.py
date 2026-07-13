@@ -1,5 +1,6 @@
 """Kokoro engine + background generate-ahead worker writing WAVs to a hash cache."""
 import logging
+import re
 import threading
 from pathlib import Path
 
@@ -40,6 +41,10 @@ class KokoroEngine:
         return self._pipelines[lang]
 
     def synthesize(self, text: str, voice: str) -> np.ndarray:
+        if not re.search(r"[A-Za-z0-9]", text):
+            # scene separators ("***", "* * *", "◆ ◆ ◆") have no speakable
+            # content and make Kokoro raise; treat them as a narrator pause.
+            return np.zeros(int(0.4 * SAMPLE_RATE), dtype=np.float32)
         import torch
         pieces = []
         for result in self._pipeline(voice)(text, voice=voice):
@@ -117,9 +122,12 @@ class TTSWorker:
         """Under lock: (cid, text) to generate next, or None."""
         by_id = dict(zip(self._cids, (c.text for c in self._chunks)))
         for cid in self._requests:
-            if cid in by_id and not self.path(cid).exists():
+            if (cid in by_id and not self.path(cid).exists()
+                    and self._attempts.get(cid, 0) < MAX_ATTEMPTS):
                 return cid, by_id[cid]
-        self._requests = [c for c in self._requests if not self.path(c).exists()]
+        self._requests = [c for c in self._requests
+                          if c in by_id and not self.path(c).exists()
+                          and self._attempts.get(c, 0) < MAX_ATTEMPTS]
         end = min(self._position + LOOKAHEAD + 1, len(self._cids))
         for idx in range(self._position, end):
             cid = self._cids[idx]
@@ -141,7 +149,7 @@ class TTSWorker:
             try:
                 audio = self._engine.synthesize(text, voice)
                 tmp = self.path(cid).with_suffix(".tmp")
-                sf.write(tmp, audio, SAMPLE_RATE, format="WAV")
+                sf.write(tmp, audio, SAMPLE_RATE, format="WAV", subtype="PCM_16")
                 tmp.rename(self.path(cid))
                 self._enforce_cache_cap()
                 with self._cond:

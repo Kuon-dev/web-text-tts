@@ -59,7 +59,7 @@ class AppState:
         """(Re)chunk from `text` or from novel.txt. Under lock."""
         if text is not None:
             self.novel_path.write_text(text, encoding="utf-8")
-        raw = self.novel_path.read_text(encoding="utf-8") if self.novel_path.exists() else ""
+        raw = self.novel_path.read_text(encoding="utf-8", errors="replace") if self.novel_path.exists() else ""
         self.mtime = self.novel_path.stat().st_mtime if self.novel_path.exists() else 0.0
         self.text = raw
         self.doc_id = doc_id(raw)
@@ -104,8 +104,8 @@ def create_app(data_dir: Path, worker, audio_wait: float = 30.0) -> FastAPI:
                 log.info("novel.txt changed, rechunking")
                 with st.lock:
                     st.load_doc()
-        except OSError:
-            pass
+        except Exception:
+            log.exception("poll reload failed")
 
     async def _poll_file():
         while True:
