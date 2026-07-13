@@ -41,9 +41,37 @@ class FakeWorker:
         sf.write(self.path(cid), np.zeros(240, dtype=np.float32), 24000)
 
 
-def make_client(tmp_path):
-    worker = FakeWorker(tmp_path / "cache")
-    app = create_app(tmp_path, worker, audio_wait=0.05)
+class AsyncGenWorker(FakeWorker):
+    """request() simulates a background generation completing shortly after."""
+
+    def request(self, cid):
+        event = threading.Event()
+        if self.path(cid).exists():
+            event.set()
+            return event
+        timer = threading.Timer(0.02, self._finish, args=(cid, event))
+        timer.daemon = True
+        timer.start()
+        return event
+
+    def _finish(self, cid, event):
+        self.write_wav(cid)
+        event.set()
+
+
+class EvictedFileWorker(FakeWorker):
+    """request() returns an already-set event, but the file never exists
+    (simulates eviction between generation completing and serve time)."""
+
+    def request(self, cid):
+        event = threading.Event()
+        event.set()
+        return event
+
+
+def make_client(tmp_path, worker_cls=FakeWorker, audio_wait=0.05):
+    worker = worker_cls(tmp_path / "cache")
+    app = create_app(tmp_path, worker, audio_wait=audio_wait)
     return TestClient(app), worker
 
 
@@ -109,3 +137,48 @@ def test_voices_endpoint(tmp_path):
     client, _ = make_client(tmp_path)
     body = client.get("/api/voices").json()
     assert "af_heart" in body["voices"] and body["current"] == "af_heart"
+
+
+def test_state_position_is_clamped_to_last_chunk(tmp_path):
+    client, worker = make_client(tmp_path)
+    client.post("/api/doc", json={"text": "One.\nTwo.\nThree."})
+
+    resp = client.post("/api/state", json={"position": 99999})
+    assert resp.status_code == 200
+    body = client.get("/api/doc").json()
+    assert body["position"] == 2  # clamped to last valid chunk index
+    assert worker.positions[-1] == 2
+
+
+def test_state_speed_is_clamped_to_supported_range(tmp_path):
+    client, _ = make_client(tmp_path)
+    client.post("/api/doc", json={"text": "One.\nTwo.\nThree."})
+
+    resp = client.post("/api/state", json={"speed": -5})
+    assert resp.status_code == 200
+    body = client.get("/api/doc").json()
+    assert body["speed"] == 0.5
+
+
+def test_audio_waits_for_async_generation(tmp_path):
+    client, worker = make_client(tmp_path, worker_cls=AsyncGenWorker, audio_wait=2.0)
+    client.post("/api/doc", json={"text": "Hello there."})
+    cid = chunk_id("af_heart", "Hello there.")
+    resp = client.get(f"/api/audio/{cid}")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"] == "audio/wav"
+
+
+def test_audio_503_when_ready_event_but_file_evicted(tmp_path):
+    client, worker = make_client(tmp_path, worker_cls=EvictedFileWorker)
+    client.post("/api/doc", json={"text": "Hello there."})
+    cid = chunk_id("af_heart", "Hello there.")
+    resp = client.get(f"/api/audio/{cid}")
+    assert resp.status_code == 503
+
+
+def test_state_json_with_wrong_shape_does_not_crash_startup(tmp_path):
+    (tmp_path / "state.json").write_text("[1, 2, 3]")
+    client, _ = make_client(tmp_path)
+    body = client.get("/api/doc").json()
+    assert body["voice"] == "af_heart"

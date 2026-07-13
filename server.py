@@ -42,8 +42,11 @@ class AppState:
         self.state = dict(DEFAULT_STATE)
         if self.state_path.exists():
             try:
-                self.state.update(json.loads(self.state_path.read_text()))
-            except (json.JSONDecodeError, OSError):
+                loaded = json.loads(self.state_path.read_text())
+                if not isinstance(loaded, dict):
+                    raise ValueError("state.json is not an object")
+                self.state.update(loaded)
+            except (json.JSONDecodeError, OSError, ValueError, TypeError):
                 log.warning("state.json unreadable, starting fresh")
 
     def save_state(self):
@@ -94,17 +97,20 @@ def create_app(data_dir: Path, worker, audio_wait: float = 30.0) -> FastAPI:
         yield
         task.cancel()
 
+    def _check_reload():
+        try:
+            mtime = st.novel_path.stat().st_mtime if st.novel_path.exists() else 0.0
+            if mtime != st.mtime:
+                log.info("novel.txt changed, rechunking")
+                with st.lock:
+                    st.load_doc()
+        except OSError:
+            pass
+
     async def _poll_file():
         while True:
             await asyncio.sleep(POLL_SECONDS)
-            try:
-                mtime = st.novel_path.stat().st_mtime if st.novel_path.exists() else 0.0
-                if mtime != st.mtime:
-                    log.info("novel.txt changed, rechunking")
-                    with st.lock:
-                        st.load_doc()
-            except OSError:
-                pass
+            await asyncio.to_thread(_check_reload)
 
     app = FastAPI(lifespan=lifespan)
 
@@ -139,10 +145,11 @@ def create_app(data_dir: Path, worker, audio_wait: float = 30.0) -> FastAPI:
         rechunked = False
         with st.lock:
             if body.position is not None:
-                st.state["positions"][st.doc_id] = body.position
-                worker.set_position(body.position)
+                pos = max(0, min(body.position, max(len(st.chunks) - 1, 0)))
+                st.state["positions"][st.doc_id] = pos
+                worker.set_position(pos)
             if body.speed is not None:
-                st.state["speed"] = body.speed
+                st.state["speed"] = min(3.0, max(0.5, body.speed))
             if body.voice is not None and body.voice != st.state["voice"]:
                 if body.voice not in VOICES:
                     raise HTTPException(400, "unknown voice")
