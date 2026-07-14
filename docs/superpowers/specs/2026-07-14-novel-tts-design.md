@@ -206,6 +206,21 @@ Re-chunking changes chunk ids (long-paragraph audio regenerates; short
 paragraphs keep their cache) and shifts saved positions slightly backwards —
 a small rewind, never a skip.
 
+## Addendum: Full-chapter back-fill (2026-07-15, v2.7)
+
+The time-boxed lookahead (v2.6) still idled the worker once ~3 minutes of
+cushion existed — cushion a near-realtime generator burns through with no
+way to rebuild while a game holds the GPU. The worker now back-fills the
+entire document: explicit client requests first, then every chunk from the
+listening position to the end, then wrap-around from the top (covers
+rewinds). Every GPU-idle moment (menus, pauses, alt-tab) banks cushion; a
+~1h chapter fully caches in roughly 7 minutes of free GPU and then plays
+with zero stalls — and zero GPU load competing with the game — for the rest
+of the session. The `LOOKAHEAD_*` constants are gone; the fill stops when
+the document's estimated audio (`EST_BYTES_PER_CHAR` = 3200, PCM16 at 15
+chars/s) would exceed 90% of the 2GB cache cap, so a pathological paste can
+never evict-and-regenerate its own audio in a loop.
+
 ## Out of scope (deliberately)
 
 - MP3/M4B export (possible later "export" button; cache design already supports it).

@@ -2,6 +2,7 @@
 import logging
 import re
 import threading
+from itertools import chain
 from pathlib import Path
 
 import numpy as np
@@ -13,13 +14,16 @@ log = logging.getLogger("novel-tts")
 
 SAMPLE_RATE = 24000
 CACHE_CAP_BYTES = 2 * 1024 ** 3
-# Generate-ahead window, measured in estimated audio time rather than chunk
-# count: 8 short dialogue chunks buffer ~15s of audio but 8 long paragraphs
-# buffer ~3min, and it's the thin end that starves playback when generation
-# drops to ~1x realtime under game GPU load.
+# The worker back-fills the whole document (listening position -> end, then
+# wrap-around to cover rewinds), so every GPU-idle moment banks cushion: once
+# a chapter is fully cached, playback never stalls and the GPU is untouched,
+# even when a game pins generation to ~1x realtime. Explicit client requests
+# still jump the queue. The byte budget stops the fill just short of the
+# cache cap so a pathological paste can never evict-and-regenerate its own
+# audio in an endless loop.
 CHARS_PER_SECOND = 15.0  # narration pace measured on real chapters
-LOOKAHEAD_SECONDS = 180.0
-LOOKAHEAD_MAX_CHUNKS = 64
+EST_BYTES_PER_CHAR = SAMPLE_RATE * 2 / CHARS_PER_SECOND  # PCM16 mono WAV
+FILL_BUDGET_BYTES = CACHE_CAP_BYTES * 0.9
 MAX_ATTEMPTS = 2
 
 VOICES = [
@@ -134,13 +138,12 @@ class TTSWorker:
         self._requests = [c for c in self._requests
                           if c in by_id and not self.path(c).exists()
                           and self._attempts.get(c, 0) < MAX_ATTEMPTS]
-        end, seconds = self._position, 0.0
-        while (end < len(self._cids)
-               and end - self._position < LOOKAHEAD_MAX_CHUNKS
-               and seconds < LOOKAHEAD_SECONDS):
-            seconds += len(self._chunks[end].text) / CHARS_PER_SECOND
-            end += 1
-        for idx in range(self._position, end):
+        spent = 0.0
+        for idx in chain(range(self._position, len(self._cids)),
+                         range(0, self._position)):
+            spent += len(self._chunks[idx].text) * EST_BYTES_PER_CHAR
+            if spent > FILL_BUDGET_BYTES:
+                break
             cid = self._cids[idx]
             if (not self.path(cid).exists() and cid not in self._failed
                     and self._attempts.get(cid, 0) < MAX_ATTEMPTS):
