@@ -4,6 +4,13 @@ export interface Chunk {
   para: number
 }
 
+export interface ImageRef {
+  id: string
+  para: number
+  w: number
+  h: number
+}
+
 export interface Doc {
   doc_id: string
   chunks: Chunk[]
@@ -11,6 +18,7 @@ export interface Doc {
   voice: string
   speed: number
   volume?: number
+  images?: ImageRef[]
 }
 
 export interface Status {
@@ -40,6 +48,24 @@ export async function api<T>(path: string, body?: unknown): Promise<T> {
 }
 
 export const audioUrl = (cid: string) => `/api/audio/${cid}`
+
+export const imageUrl = (iid: string) => `/api/image/${iid}`
+
+export interface ImageInfo {
+  id: string
+  w: number
+  h: number
+}
+
+/** Upload raw image bytes (clipboard bitmap or decoded data: URI). */
+export async function uploadImage(blob: Blob): Promise<ImageInfo> {
+  const resp = await fetch("/api/image", { method: "POST", body: blob })
+  if (!resp.ok) throw new Error(`upload: ${resp.status}`)
+  return resp.json() as Promise<ImageInfo>
+}
+
+/** Ask the server to download an image URL from a pasted chapter. */
+export const importImageUrl = (url: string) => api<ImageInfo>("/api/image/fetch", { url })
 
 /** "af_heart" -> "Heart · US female" */
 export function voiceLabel(id: string): string {

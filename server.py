@@ -6,12 +6,13 @@ import threading
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from chunker import chunk_id, chunk_text, doc_id
+from chunker import chunk_id, chunk_text, doc_id, doc_images
+from images import ImageError, ImageStore
 from tts import VOICES
 
 log = logging.getLogger("novel-tts")
@@ -31,6 +32,10 @@ class StateBody(BaseModel):
     volume: float | None = None
 
 
+class ImageFetchBody(BaseModel):
+    url: str
+
+
 class AppState:
     def __init__(self, data_dir: Path, worker):
         self.novel_path = data_dir / "novel.txt"
@@ -40,6 +45,8 @@ class AppState:
         self.text = ""
         self.doc_id = ""
         self.chunks = []
+        self.images = ImageStore(data_dir / "images")
+        self.image_refs = []
         self.mtime = 0.0
         self.state = dict(DEFAULT_STATE)
         if self.state_path.exists():
@@ -75,6 +82,8 @@ class AppState:
         self.text = raw
         self.doc_id = doc_id(raw)
         self.chunks = chunk_text(raw)
+        self.image_refs = doc_images(raw)
+        self.images.prune({r.id for r in self.image_refs})
         self.worker.set_doc(self.chunks, self.state["voice"], position=self.position())
 
     def doc_json(self) -> dict:
@@ -88,6 +97,11 @@ class AppState:
             "chunks": [
                 {"id": chunk_id(voice, c.text), "text": c.text, "para": c.para}
                 for c in self.chunks
+            ],
+            "images": [
+                {"id": r.id, "para": r.para, "w": m["w"], "h": m["h"]}
+                for r in self.image_refs
+                if (m := self.images.meta(r.id)) is not None
             ],
         }
 
@@ -176,6 +190,33 @@ def create_app(data_dir: Path, worker, audio_wait: float = 30.0) -> FastAPI:
                 rechunked = True
             st.save_state()
         return {"ok": True, "rechunked": rechunked}
+
+    @app.post("/api/image")
+    async def post_image(request: Request):
+        data = await request.body()
+        try:
+            return st.images.put(data)
+        except ImageError as exc:
+            raise HTTPException(400, str(exc))
+
+    @app.post("/api/image/fetch")
+    def post_image_fetch(body: ImageFetchBody):
+        try:
+            return st.images.fetch(body.url)
+        except ImageError as exc:
+            raise HTTPException(400, str(exc))
+
+    @app.get("/api/image/{iid}")
+    def get_image(iid: str):
+        if not (len(iid) == 40 and all(c in "0123456789abcdef" for c in iid)):
+            raise HTTPException(404, "unknown image")
+        media = st.images.media_type(iid)
+        if media is None:
+            raise HTTPException(404, "unknown image")
+        return FileResponse(
+            st.images.path(iid), media_type=media,
+            headers={"Cache-Control": "max-age=31536000, immutable"},
+        )
 
     @app.get("/api/audio/{cid}")
     def get_audio(cid: str):

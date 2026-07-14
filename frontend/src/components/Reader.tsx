@@ -2,24 +2,23 @@ import { useMemo, useState } from "react"
 import { BookOpenText, ClipboardPaste } from "lucide-react"
 import { m } from "motion/react"
 import { Button } from "@/components/ui/button"
+import { imageUrl, type Chunk, type ImageRef } from "@/lib/api"
 import { useFollowChunk } from "@/lib/follow"
 import { player, usePlayer } from "@/lib/player"
 import { FONT_STACKS, type ReadingPrefs } from "@/lib/reading"
 import { cn } from "@/lib/utils"
-import type { Chunk } from "@/lib/api"
 
 interface Props {
   prefs: ReadingPrefs
   onPasteClick: () => void
 }
 
-interface Para {
-  para: number
-  items: { chunk: Chunk; i: number }[]
-}
+type Block =
+  | { kind: "text"; para: number; items: { chunk: Chunk; i: number }[] }
+  | { kind: "image"; para: number; img: ImageRef }
 
 export function Reader({ prefs, onPasteClick }: Props) {
-  const { docId, chunks, idx, ready, failed } = usePlayer()
+  const { docId, chunks, images, idx, ready, failed } = usePlayer()
 
   // Track the previously focused sentence so the one the voice just left
   // can fade out slower than the new one fades in (trailing highlight).
@@ -30,19 +29,25 @@ export function Reader({ prefs, onPasteClick }: Props) {
     setTrackedIdx(idx)
   }
 
-  const paras = useMemo<Para[]>(() => {
-    const groups: Para[] = []
+  const blocks = useMemo<Block[]>(() => {
+    const groups: Block[] = []
     chunks.forEach((chunk, i) => {
       const last = groups[groups.length - 1]
-      if (!last || last.para !== chunk.para) groups.push({ para: chunk.para, items: [{ chunk, i }] })
-      else last.items.push({ chunk, i })
+      if (!last || last.kind !== "text" || last.para !== chunk.para) {
+        groups.push({ kind: "text", para: chunk.para, items: [{ chunk, i }] })
+      } else {
+        last.items.push({ chunk, i })
+      }
     })
+    // A marker paragraph is its own para index, so images interleave cleanly.
+    images.forEach((img) => groups.push({ kind: "image", para: img.para, img }))
+    groups.sort((a, b) => a.para - b.para)
     return groups
-  }, [chunks])
+  }, [chunks, images])
 
   useFollowChunk(idx, docId, prefs.autoScroll && chunks.length > 0)
 
-  if (!chunks.length) {
+  if (!chunks.length && !images.length) {
     return (
       <main className="flex flex-1 flex-col items-center justify-center gap-5 px-6 pb-28 text-center animate-in fade-in zoom-in-95 duration-500 motion-reduce:animate-none">
         <div className="flex size-14 items-center justify-center rounded-lg border bg-card text-muted-foreground">
@@ -74,7 +79,27 @@ export function Reader({ prefs, onPasteClick }: Props) {
         textAlign: prefs.justify ? "justify" : undefined,
       }}
     >
-      {paras.map((p, pi) => (
+      {blocks.map((p, pi) =>
+        p.kind === "image" ? (
+          <m.figure
+            key={`img-${p.para}`}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ type: "spring", stiffness: 120, damping: 20, delay: Math.min(pi * 0.04, 0.4) }}
+            style={{ marginBottom: `${prefs.paraSpacing}em` }}
+          >
+            <a href={imageUrl(p.img.id)} target="_blank" rel="noreferrer" title="Open full size">
+              <img
+                src={imageUrl(p.img.id)}
+                width={p.img.w}
+                height={p.img.h}
+                alt=""
+                loading="lazy"
+                className="mx-auto h-auto max-w-full rounded-md"
+              />
+            </a>
+          </m.figure>
+        ) : (
         <m.p
           key={p.para}
           initial={{ opacity: 0, y: 10 }}
@@ -103,7 +128,8 @@ export function Reader({ prefs, onPasteClick }: Props) {
             </span>
           ))}
         </m.p>
-      ))}
+        ),
+      )}
     </main>
   )
 }

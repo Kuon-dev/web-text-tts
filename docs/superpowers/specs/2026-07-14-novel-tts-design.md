@@ -162,6 +162,27 @@ when the highlight changed rows. Scroll targets subtract the chapter
 entrance stagger's residual translateY so doc-load lands on the final
 layout position.
 
+## Addendum: Inline illustrations (2026-07-15, v2.5)
+
+Chapters copied from novel sites carry their illustrations as `<img>` URLs
+in the clipboard's `text/html` flavor. The paste dialog now intercepts such
+pastes (`lib/paste.ts` converts the HTML fragment to paragraph text,
+preserving image positions), asks the server to download each image
+(`POST /api/image/fetch`; direct bitmap pastes upload via `POST /api/image`),
+and inserts `[img:<sha1-of-bytes>]` marker lines into the text. Markers are
+plain lines in `novel.txt`: the chunker skips marker paragraphs (never sent
+to TTS) and `doc_images()` reports them; `/api/doc` returns
+`images: [{id, para, w, h}]` and `GET /api/image/{id}` serves the bytes
+(immutable cache). `images.py` owns the content-addressed store
+(`images/<sha1>`): pure-stdlib dimension sniffing for png/jpeg/gif/webp,
+25MB per-image cap, 500MB LRU prune that spares images referenced by the
+current chapter. The reader interleaves images between paragraphs at their
+marker positions with explicit width/height (so late loads can't shift the
+auto-scroll), column-width capped, click to open full size. Failed imports
+drop the marker and surface a toast; plain-text pastes are unchanged.
+Verified end-to-end on an isolated instance against a real Blogger chapter
+clipboard capture.
+
 ## Out of scope (deliberately)
 
 - MP3/M4B export (possible later "export" button; cache design already supports it).

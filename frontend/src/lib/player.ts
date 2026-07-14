@@ -1,9 +1,10 @@
 import { useSyncExternalStore } from "react"
-import { api, audioUrl, type Chunk, type Doc, type Status, type VoicesResponse } from "./api"
+import { api, audioUrl, type Chunk, type Doc, type ImageRef, type Status, type VoicesResponse } from "./api"
 
 export interface PlayerSnapshot {
   docId: string
   chunks: Chunk[]
+  images: ImageRef[]
   idx: number
   playing: boolean
   ready: ReadonlySet<string>
@@ -60,6 +61,7 @@ class PlayerEngine {
     return {
       docId: this.doc.doc_id,
       chunks: this.doc.chunks,
+      images: this.doc.images ?? [],
       idx: this.idx,
       playing: this.playing,
       ready: new Set(this.ready),
