@@ -9,10 +9,11 @@ Local audiobook player for pasted light-novel text. Kokoro-82M TTS, browser play
 Paste a chapter (button top right, or edit `novel.txt`), press Play.
 
 - Space = play/pause · ←/→ = skip chunk · click any sentence to jump
-- Bottom player bar: voice picker, transport, volume + mute, speed popover,
-  clickable chapter-progress strip
-- Aa menu (top right): reading font (Georgia / Literata / Inter / System),
-  size, line spacing, text width — saved in the browser
+- Bottom player bar: searchable voice combobox (grouped US/UK, female/male),
+  transport, volume + mute, speed popover, clickable chapter-progress strip
+- Aa menu (top right): theme (light / dark / system) + accent color, reading font
+  (Georgia / Literata / Inter / System), size, line & paragraph spacing, text
+  width, justify, auto-scroll — saved in the browser
 - Position (per chapter), voice, speed, and volume are saved — close anything, it resumes.
 - Audio cache: `cache/` (2 GiB cap, auto-evicted). State: `state.json`.
 

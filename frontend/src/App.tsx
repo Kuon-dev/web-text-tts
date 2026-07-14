@@ -6,10 +6,12 @@ import { Reader } from "@/components/Reader"
 import { TopBar } from "@/components/TopBar"
 import { player } from "@/lib/player"
 import { useReadingPrefs } from "@/lib/reading"
+import { useTheme } from "@/lib/theme"
 
 export default function App() {
   const [pasteOpen, setPasteOpen] = useState(false)
   const { prefs, update, reset } = useReadingPrefs()
+  const { theme, dark, update: updateTheme, reset: resetTheme } = useTheme()
 
   useEffect(() => {
     player.start()
@@ -40,14 +42,18 @@ export default function App() {
   }, [])
 
   const openPaste = () => setPasteOpen(true)
+  const resetAll = () => {
+    reset()
+    resetTheme()
+  }
 
   return (
     <div className="flex min-h-dvh flex-col">
-      <TopBar prefs={prefs} update={update} reset={reset} onPasteClick={openPaste} />
+      <TopBar prefs={prefs} update={update} theme={theme} updateTheme={updateTheme} reset={resetAll} onPasteClick={openPaste} />
       <Reader prefs={prefs} onPasteClick={openPaste} />
       <PlayerBar />
       <PasteDialog open={pasteOpen} onOpenChange={setPasteOpen} />
-      <Toaster theme="dark" position="bottom-right" offset={{ bottom: 88 }} />
+      <Toaster theme={dark ? "dark" : "light"} position="bottom-right" offset={{ bottom: 88 }} />
     </div>
   )
 }

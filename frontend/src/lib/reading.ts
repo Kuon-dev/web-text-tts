@@ -7,6 +7,9 @@ export interface ReadingPrefs {
   size: number
   lineHeight: number
   width: number
+  paraSpacing: number
+  justify: boolean
+  autoScroll: boolean
 }
 
 export const FONT_STACKS: Record<FontKey, string> = {
@@ -28,6 +31,9 @@ export const DEFAULT_PREFS: ReadingPrefs = {
   size: 18,
   lineHeight: 1.75,
   width: 44,
+  paraSpacing: 1.1,
+  justify: false,
+  autoScroll: true,
 }
 
 const STORAGE_KEY = "novel-tts:reading"
@@ -43,6 +49,9 @@ function loadPrefs(): ReadingPrefs {
     p.size = clamp(Number(p.size) || DEFAULT_PREFS.size, 14, 26)
     p.lineHeight = clamp(Number(p.lineHeight) || DEFAULT_PREFS.lineHeight, 1.3, 2.4)
     p.width = clamp(Number(p.width) || DEFAULT_PREFS.width, 34, 60)
+    p.paraSpacing = clamp(Number(p.paraSpacing) || DEFAULT_PREFS.paraSpacing, 0.4, 2.4)
+    p.justify = typeof p.justify === "boolean" ? p.justify : DEFAULT_PREFS.justify
+    p.autoScroll = typeof p.autoScroll === "boolean" ? p.autoScroll : DEFAULT_PREFS.autoScroll
     return p
   } catch {
     return DEFAULT_PREFS

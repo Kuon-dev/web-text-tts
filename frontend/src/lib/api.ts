@@ -45,8 +45,19 @@ export const audioUrl = (cid: string) => `/api/audio/${cid}`
 export function voiceLabel(id: string): string {
   const m = /^([ab])([fm])_(.+)$/.exec(id)
   if (!m) return id
-  const accent = m[1] === "a" ? "US" : "UK"
-  const gender = m[2] === "f" ? "female" : "male"
-  const name = m[3].charAt(0).toUpperCase() + m[3].slice(1)
-  return `${name} · ${accent} ${gender}`
+  return `${voiceName(id)} · ${voiceGroup(id)}`
+}
+
+/** "af_heart" -> "US female"; unparsable ids -> "Other" */
+export function voiceGroup(id: string): string {
+  const m = /^([ab])([fm])_/.exec(id)
+  if (!m) return "Other"
+  return `${m[1] === "a" ? "US" : "UK"} ${m[2] === "f" ? "female" : "male"}`
+}
+
+/** "af_heart" -> "Heart" */
+export function voiceName(id: string): string {
+  const m = /^[ab][fm]_(.+)$/.exec(id)
+  const name = m ? m[1] : id
+  return name.charAt(0).toUpperCase() + name.slice(1)
 }

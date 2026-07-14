@@ -113,6 +113,17 @@ as sonner toasts instead of `alert()`. The playback engine
 (generation-token retry cancellation, failed-chunk skip, mid-chunk resume,
 status polling, per-chapter resume), verified by line-by-line review.
 
+**v2.1 (2026-07-15):** the voice picker became a searchable combobox
+(shadcn Popover + Command pattern) grouped by US/UK × female/male; theme
+settings were added to the Aa menu — mode light/dark/system plus five accent
+colors (indigo default) driving the progress bar and current-sentence
+highlight via `--accent-base` CSS vars, applied pre-paint by an inline
+script in `index.html` and persisted in localStorage
+(`novel-tts:theme`) — along with paragraph spacing, justify-text, and
+auto-scroll reading options. The global UI font (everything outside the
+chapter reading area, including the paste dialog) is **Geist**, bundled
+locally via @fontsource-variable.
+
 ## Out of scope (deliberately)
 
 - MP3/M4B export (possible later "export" button; cache design already supports it).

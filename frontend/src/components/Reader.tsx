@@ -29,9 +29,11 @@ export function Reader({ prefs, onPasteClick }: Props) {
     return groups
   }, [chunks])
 
+  const { autoScroll } = prefs
   useEffect(() => {
+    if (!autoScroll) return
     document.getElementById(`c${idx}`)?.scrollIntoView({ block: "center", behavior: "smooth" })
-  }, [idx, docId])
+  }, [idx, docId, autoScroll])
 
   if (!chunks.length) {
     return (
@@ -61,10 +63,11 @@ export function Reader({ prefs, onPasteClick }: Props) {
         fontSize: `${prefs.size}px`,
         lineHeight: prefs.lineHeight,
         maxWidth: `${prefs.width}rem`,
+        textAlign: prefs.justify ? "justify" : undefined,
       }}
     >
       {paras.map((p) => (
-        <p key={p.para} className="mb-[1.1em]">
+        <p key={p.para} style={{ marginBottom: `${prefs.paraSpacing}em` }}>
           {p.items.map(({ chunk, i }) => (
             <span
               key={i}
@@ -73,9 +76,9 @@ export function Reader({ prefs, onPasteClick }: Props) {
               className={cn(
                 "cursor-pointer rounded-sm box-decoration-clone px-0.5 transition-colors duration-150",
                 i === idx
-                  ? "bg-indigo-500/25 text-zinc-50 ring-1 ring-indigo-400/40"
+                  ? "bg-(--hl-bg) text-foreground ring-1 ring-(--hl-ring)"
                   : failed.has(chunk.id)
-                    ? "text-red-400 underline decoration-dotted underline-offset-4 hover:bg-accent/50"
+                    ? "text-destructive underline decoration-dotted underline-offset-4 hover:bg-accent/50"
                     : ready.has(chunk.id)
                       ? "text-foreground/85 hover:bg-accent/50"
                       : "text-muted-foreground/70 hover:bg-accent/50",

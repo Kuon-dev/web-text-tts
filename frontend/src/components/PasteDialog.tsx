@@ -53,7 +53,7 @@ export function PasteDialog({ open, onOpenChange }: Props) {
             }
           }}
           placeholder="Paste the chapter here…"
-          className="h-[50vh] resize-none font-serif text-[15px] leading-relaxed"
+          className="h-[50vh] resize-none font-sans text-[15px] leading-relaxed"
           autoFocus
         />
         <DialogFooter>
