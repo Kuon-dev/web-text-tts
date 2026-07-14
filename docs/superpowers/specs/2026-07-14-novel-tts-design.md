@@ -183,6 +183,29 @@ drop the marker and surface a toast; plain-text pastes are unchanged.
 Verified end-to-end on an isolated instance against a real Blogger chapter
 clipboard capture.
 
+## Addendum: Buffering under GPU contention (2026-07-15, v2.6)
+
+With a game holding the GPU, Kokoro drops from ~10x to ~1x realtime (measured
+via cache-write timestamps: 173s of audio in 152s of wall time), so playback
+was outrunning the 8-chunk generate-ahead and every uncached chunk stalled for
+its full audio length — worst for 400-char paragraph chunks (~25s of audio,
+~25s stall). Two changes:
+
+- `MAX_CHUNK_CHARS` 400 → **250**: worst-case time-to-first-audio ~16s → in
+  practice ~12s per half-paragraph. 250 exceeds the longest real sentence
+  observed (246 chars over 1029 sentences sampled), so sentences still never
+  hard-split mid-flow; highlight granularity tightens accordingly.
+- The lookahead window is now **time-based** (`LOOKAHEAD_SECONDS = 180`,
+  estimated at 15 chars/s, capped at `LOOKAHEAD_MAX_CHUNKS = 64`) instead of
+  a fixed 8 chunks: 8 short dialogue lines only buffered ~15s of audio, which
+  is exactly when a near-realtime generator gets caught by a long paragraph.
+  The worker now builds ~3 minutes of cushion whenever the GPU has headroom
+  (menus, pauses), absorbing contention spikes.
+
+Re-chunking changes chunk ids (long-paragraph audio regenerates; short
+paragraphs keep their cache) and shifts saved positions slightly backwards —
+a small rewind, never a skip.
+
 ## Out of scope (deliberately)
 
 - MP3/M4B export (possible later "export" button; cache design already supports it).

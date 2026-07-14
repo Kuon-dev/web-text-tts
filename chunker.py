@@ -3,7 +3,12 @@ import hashlib
 import re
 from dataclasses import dataclass
 
-MAX_CHUNK_CHARS = 400
+# A chunk is the unit of time-to-first-audio: the player can't start speaking
+# a chunk until its whole WAV exists, so under GPU contention (a game running)
+# the worst-case stall is the chunk's full audio length. 250 keeps that under
+# ~16s while still exceeding the longest real sentence observed (~246 chars),
+# so sentences are never hard-split mid-flow.
+MAX_CHUNK_CHARS = 250
 
 # An illustration reference on its own line: [img:<sha1 of image bytes>].
 # Marker paragraphs are never sent to TTS; the reader renders them inline.

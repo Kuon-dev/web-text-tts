@@ -13,7 +13,13 @@ log = logging.getLogger("novel-tts")
 
 SAMPLE_RATE = 24000
 CACHE_CAP_BYTES = 2 * 1024 ** 3
-LOOKAHEAD = 8
+# Generate-ahead window, measured in estimated audio time rather than chunk
+# count: 8 short dialogue chunks buffer ~15s of audio but 8 long paragraphs
+# buffer ~3min, and it's the thin end that starves playback when generation
+# drops to ~1x realtime under game GPU load.
+CHARS_PER_SECOND = 15.0  # narration pace measured on real chapters
+LOOKAHEAD_SECONDS = 180.0
+LOOKAHEAD_MAX_CHUNKS = 64
 MAX_ATTEMPTS = 2
 
 VOICES = [
@@ -128,7 +134,12 @@ class TTSWorker:
         self._requests = [c for c in self._requests
                           if c in by_id and not self.path(c).exists()
                           and self._attempts.get(c, 0) < MAX_ATTEMPTS]
-        end = min(self._position + LOOKAHEAD + 1, len(self._cids))
+        end, seconds = self._position, 0.0
+        while (end < len(self._cids)
+               and end - self._position < LOOKAHEAD_MAX_CHUNKS
+               and seconds < LOOKAHEAD_SECONDS):
+            seconds += len(self._chunks[end].text) / CHARS_PER_SECOND
+            end += 1
         for idx in range(self._position, end):
             cid = self._cids[idx]
             if (not self.path(cid).exists() and cid not in self._failed

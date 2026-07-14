@@ -68,15 +68,31 @@ def test_failed_chunk_marked_after_two_attempts_and_retryable(tmp_path):
 
 
 def test_set_doc_resets_and_only_generates_lookahead_window(tmp_path):
-    chunks = make_chunks(20)
+    # Window is time-based: each 900-char chunk estimates ~60s of audio, so a
+    # 180s window covers exactly 3 chunks ahead of the position.
+    chunks = [Chunk(text=f"{i} " + "word " * 179 + "end.", para=i) for i in range(10)]
+    assert all(len(c.text) >= 900 for c in chunks)
     worker = TTSWorker(tmp_path, FakeEngine())
     worker.set_doc(chunks, "af_heart", position=0)
     cids = [chunk_id("af_heart", c.text) for c in chunks]
-    assert wait_until(lambda: all(worker.path(c).exists() for c in cids[:9]))
+    assert wait_until(lambda: all(worker.path(c).exists() for c in cids[:3]))
     time.sleep(0.2)  # give it a chance to overshoot
-    assert not worker.path(cids[15]).exists()  # beyond position+8
-    worker.set_position(12)
-    assert wait_until(lambda: worker.path(cids[15]).exists())
+    assert not worker.path(cids[5]).exists()  # beyond the 180s window
+    worker.set_position(4)
+    assert wait_until(lambda: worker.path(cids[5]).exists())
+
+
+def test_lookahead_counts_many_short_chunks_up_to_cap(tmp_path):
+    # Short dialogue lines estimate ~1s each; the chunk cap (not the seconds
+    # target) bounds the window, and it must exceed the old 8-chunk depth.
+    from tts import LOOKAHEAD_MAX_CHUNKS
+    chunks = make_chunks(LOOKAHEAD_MAX_CHUNKS + 10)
+    worker = TTSWorker(tmp_path, FakeEngine())
+    worker.set_doc(chunks, "af_heart", position=0)
+    cids = [chunk_id("af_heart", c.text) for c in chunks]
+    assert wait_until(lambda: all(worker.path(c).exists() for c in cids[:LOOKAHEAD_MAX_CHUNKS]), timeout=15.0)
+    time.sleep(0.2)
+    assert not worker.path(cids[LOOKAHEAD_MAX_CHUNKS + 5]).exists()
 
 
 def test_poison_request_does_not_loop_or_block_later_requests(tmp_path):
