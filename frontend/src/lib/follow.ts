@@ -36,7 +36,16 @@ export function useFollowChunk(idx: number, docId: string, enabled: boolean) {
     if (!el) return
 
     const r = el.getBoundingClientRect()
-    const target = window.scrollY + r.top + r.height / 2 - window.innerHeight * READING_LINE
+    // The chapter-entrance stagger translates paragraphs (y: 10 -> 0) and
+    // rects include that transform; subtract the residual so we target the
+    // sentence's final resting position, not where it is mid-entrance.
+    let tfY = 0
+    const p = el.closest("p")
+    if (p) {
+      const tf = getComputedStyle(p).transform
+      if (tf && tf !== "none") tfY = new DOMMatrixReadOnly(tf).m42
+    }
+    const target = window.scrollY + r.top - tfY + r.height / 2 - window.innerHeight * READING_LINE
     const newDoc = lastDoc.current !== docId
     lastDoc.current = docId
 
@@ -56,11 +65,14 @@ export function useFollowChunk(idx: number, docId: string, enabled: boolean) {
     // first glide), resync without inheriting stale velocity.
     if (Math.abs(mv.get() - window.scrollY) > 1) mv.jump(window.scrollY)
 
-    // Slightly overdamped: settles firmly on the reading line, no overshoot.
+    // Critically damped and fairly stiff: the glide must lead the eye to the
+    // new sentence quickly (springs start at zero velocity, so a soft spring
+    // leaves the page static right when the highlight moves rows), then
+    // settle without overshoot.
     anim.current = animate(mv, target, {
       type: "spring",
-      stiffness: 110,
-      damping: 24,
+      stiffness: 170,
+      damping: 26,
       mass: 1,
       restDelta: 0.5,
       onUpdate: (v) => window.scrollTo(0, v),

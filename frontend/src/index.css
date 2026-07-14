@@ -154,13 +154,21 @@
 .hl-current {
     background-color: var(--hl-bg);
     box-shadow: 0 0 0 1px var(--hl-ring);
-    animation: hl-in 400ms cubic-bezier(0.22, 1, 0.36, 1);
+    animation: hl-in 300ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 /* Audio for the focused sentence is still generating — settle, then pulse. */
 .hl-current.hl-buffering {
     animation:
-        hl-in 400ms cubic-bezier(0.22, 1, 0.36, 1),
-        hl-pulse 1.8s ease-in-out 400ms infinite;
+        hl-in 300ms cubic-bezier(0.22, 1, 0.36, 1),
+        hl-pulse 1.8s ease-in-out 300ms infinite;
+}
+/* The sentence the voice just left: the ring must vanish fast so only ONE
+   row ever reads as current; the background tint trails as a subtle wake. */
+.hl-leave {
+    transition:
+        background-color 450ms ease-out,
+        color 450ms ease-out,
+        box-shadow 120ms ease-out;
 }
 @keyframes hl-in {
     from {

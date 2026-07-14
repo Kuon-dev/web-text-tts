@@ -152,6 +152,16 @@ Play/pause and volume icons are stacked `m.span`s that spring cross-fade
 with the scrub knob riding its right edge, and paragraphs stagger in
 (capped 0.4s) on chapter load, replacing the reader's slide-in entrance.
 
+**v2.4.1 (2026-07-15):** focused-reading handoff fix (headless-verified).
+Only one row may ever read as current: the leaving sentence now drops its
+ring in 120ms and trails only a 450ms background wake (`.hl-leave`), the
+incoming highlight settles in 300ms, and the follow spring is critically
+damped (stiffness 170 / damping 26) so the glide leads the eye immediately
+— soft springs start at zero velocity, which left the page static exactly
+when the highlight changed rows. Scroll targets subtract the chapter
+entrance stagger's residual translateY so doc-load lands on the final
+layout position.
+
 ## Out of scope (deliberately)
 
 - MP3/M4B export (possible later "export" button; cache design already supports it).
