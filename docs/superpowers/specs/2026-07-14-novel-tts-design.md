@@ -95,6 +95,24 @@ File edited externally → mtime poll (~1s) notices → same path as above.
 - Python 3.12 venv: `kokoro`, `torch` (CUDA wheel), `soundfile`, `fastapi`,
   `uvicorn`, `pytest` (dev)
 
+## Addendum: UI v2 (2026-07-15)
+
+The vanilla single-file player was replaced by a React + Vite + Tailwind 4 +
+shadcn/ui frontend in `frontend/`, built into `static/` (built assets are
+committed; the FastAPI server is unchanged as the host — Node 22 at `~/node22`
+is only needed to modify the UI). User flow: slim top bar (title, Aa reading
+menu, Paste chapter) + audiobook-style bottom player bar (voice picker,
+transport, clickable progress strip, volume slider + mute, speed popover with
+presets). New settings: **volume** (persisted server-side in `state.json`,
+clamped 0–1, returned by `/api/doc`) and **reading preferences** (font
+Georgia/Literata/Inter/System — Literata and Inter bundled locally — size,
+line spacing, text width; persisted in localStorage). Theme: shadcn zinc dark,
+`--radius: 0.25rem` (low border radius per user requirement). Errors surface
+as sonner toasts instead of `alert()`. The playback engine
+(`frontend/src/lib/player.ts`) is a verbatim port of the vanilla logic
+(generation-token retry cancellation, failed-chunk skip, mid-chunk resume,
+status polling, per-chapter resume), verified by line-by-line review.
+
 ## Out of scope (deliberately)
 
 - MP3/M4B export (possible later "export" button; cache design already supports it).
