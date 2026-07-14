@@ -15,7 +15,7 @@ interface Props {
 
 export function TopBar({ prefs, update, theme, updateTheme, reset, onPasteClick }: Props) {
   return (
-    <header className="sticky top-0 z-20 border-b bg-background/80 backdrop-blur">
+    <header className="sticky top-0 z-20 border-b bg-background/80 backdrop-blur animate-in fade-in slide-in-from-top-2 duration-500 motion-reduce:animate-none">
       <div className="mx-auto flex h-12 max-w-5xl items-center gap-2.5 px-4">
         <BookAudio className="size-4 text-muted-foreground" aria-hidden />
         <span className="text-sm font-semibold tracking-tight">novel-tts</span>

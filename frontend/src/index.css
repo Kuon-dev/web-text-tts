@@ -141,6 +141,12 @@
     --hl-bg: color-mix(in oklab, var(--accent-base) 25%, transparent);
 }
 
+/* Theme/accent switches cross-fade via the View Transitions API (src/lib/theme.ts). */
+::view-transition-old(root),
+::view-transition-new(root) {
+    animation-duration: 300ms;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;

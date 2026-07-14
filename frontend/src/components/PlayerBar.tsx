@@ -93,7 +93,7 @@ export function PlayerBar() {
   }
 
   return (
-    <footer className="fixed inset-x-0 bottom-0 z-20 border-t bg-background/90 backdrop-blur">
+    <footer className="fixed inset-x-0 bottom-0 z-20 border-t bg-background/90 backdrop-blur animate-in fade-in slide-in-from-bottom-4 duration-500 motion-reduce:animate-none">
       <div
         className="group/progress relative h-1 w-full cursor-pointer bg-secondary transition-[height] hover:h-1.5"
         onClick={scrub}
@@ -104,7 +104,15 @@ export function PlayerBar() {
         aria-label="Chapter progress"
         title="Click to jump"
       >
-        <div className="h-full bg-(--progress-fill) transition-[width] duration-300" style={{ width: `${pct}%` }} />
+        <div
+          className="h-full bg-(--progress-fill) transition-[width] duration-300 ease-out"
+          style={{ width: `${pct}%` }}
+        />
+        <div
+          aria-hidden
+          className="pointer-events-none absolute top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground opacity-0 shadow-sm transition-[left,opacity] duration-300 ease-out group-hover/progress:opacity-100"
+          style={{ left: `${pct}%` }}
+        />
       </div>
       <div className="mx-auto grid max-w-5xl grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 py-2.5">
         <div className="flex items-center">
@@ -129,7 +137,11 @@ export function PlayerBar() {
             title="Play / pause (Space)"
             aria-label={playing ? "Pause" : "Play"}
           >
-            {playing ? <Pause aria-hidden /> : <Play aria-hidden />}
+            {playing ? (
+              <Pause className="animate-in fade-in zoom-in-75 duration-200" aria-hidden />
+            ) : (
+              <Play className="animate-in fade-in zoom-in-75 duration-200" aria-hidden />
+            )}
           </Button>
           <Button
             variant="ghost"
@@ -151,7 +163,7 @@ export function PlayerBar() {
             title={muted ? "Unmute" : "Mute"}
             aria-label={muted ? "Unmute" : "Mute"}
           >
-            <VolumeIcon aria-hidden />
+            <VolumeIcon className="animate-in fade-in zoom-in-75 duration-200" aria-hidden />
           </Button>
           <Slider
             className="w-24 max-sm:hidden"

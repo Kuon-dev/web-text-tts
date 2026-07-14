@@ -88,7 +88,7 @@ export function ReadingMenu({ prefs, update, theme, updateTheme, reset }: Props)
                   aria-label={`${ACCENT_LABELS[k]} accent`}
                   aria-pressed={theme.accent === k}
                   className={cn(
-                    "size-6 cursor-pointer rounded-full border border-black/20 transition-transform hover:scale-110 dark:border-white/20",
+                    "size-6 cursor-pointer rounded-full border border-black/20 transition-[transform,box-shadow] duration-200 hover:scale-110 active:scale-95 dark:border-white/20",
                     theme.accent === k && "ring-2 ring-ring ring-offset-2 ring-offset-popover",
                   )}
                   style={{ background: ACCENT_SWATCHES[k] }}

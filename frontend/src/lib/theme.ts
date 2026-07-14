@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
+import { flushSync } from "react-dom"
 
 export type ThemeMode = "light" | "dark" | "system"
 export type AccentKey = "indigo" | "emerald" | "rose" | "amber" | "sky"
@@ -43,6 +44,17 @@ function loadTheme(): ThemePrefs {
   }
 }
 
+function applyTheme(dark: boolean, accent: AccentKey) {
+  const root = document.documentElement
+  root.classList.toggle("dark", dark)
+  root.dataset.accent = accent
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#131316" : "#fafafa")
+}
+
+function isDark(prefs: ThemePrefs, systemDark: boolean): boolean {
+  return prefs.mode === "system" ? systemDark : prefs.mode === "dark"
+}
+
 export function useTheme() {
   const [theme, setTheme] = useState<ThemePrefs>(loadTheme)
   const [systemDark, setSystemDark] = useState(() => window.matchMedia("(prefers-color-scheme: dark)").matches)
@@ -54,26 +66,45 @@ export function useTheme() {
     return () => mq.removeEventListener("change", onChange)
   }, [])
 
-  const dark = theme.mode === "system" ? systemDark : theme.mode === "dark"
+  const dark = isDark(theme, systemDark)
 
   useEffect(() => {
-    const root = document.documentElement
-    root.classList.toggle("dark", dark)
-    root.dataset.accent = theme.accent
-    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#131316" : "#fafafa")
+    applyTheme(dark, theme.accent)
   }, [dark, theme.accent])
 
-  const update = useCallback((patch: Partial<ThemePrefs>) => {
-    setTheme((prev) => {
-      const next = { ...prev, ...patch }
+  // Commit a theme change, cross-fading the page via the View Transitions
+  // API where supported; instant switch elsewhere or under reduced motion.
+  const commit = useCallback(
+    (next: ThemePrefs) => {
+      if (
+        typeof document.startViewTransition !== "function" ||
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      ) {
+        setTheme(next)
+        return
+      }
+      document.startViewTransition(() => {
+        flushSync(() => setTheme(next))
+        // The passive effect above may run after the new-state snapshot is
+        // captured — force the DOM into the new theme now (idempotent).
+        applyTheme(isDark(next, systemDark), next.accent)
+      })
+    },
+    [systemDark],
+  )
+
+  const update = useCallback(
+    (patch: Partial<ThemePrefs>) => {
+      const next = { ...theme, ...patch }
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
       } catch {
         /* private mode etc. — theme just won't persist */
       }
-      return next
-    })
-  }, [])
+      commit(next)
+    },
+    [theme, commit],
+  )
 
   const reset = useCallback(() => {
     try {
@@ -81,8 +112,8 @@ export function useTheme() {
     } catch {
       /* ignore */
     }
-    setTheme(DEFAULT_THEME)
-  }, [])
+    commit(DEFAULT_THEME)
+  }, [commit])
 
   return { theme, dark, update, reset }
 }

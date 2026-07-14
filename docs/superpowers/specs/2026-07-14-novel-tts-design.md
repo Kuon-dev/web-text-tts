@@ -124,6 +124,14 @@ auto-scroll reading options. The global UI font (everything outside the
 chapter reading area, including the paste dialog) is **Geist**, bundled
 locally via @fontsource-variable.
 
+**v2.2 (2026-07-15):** animation polish. Theme/accent switches cross-fade
+the page via the View Transitions API (300ms; skipped on unsupported
+browsers and under prefers-reduced-motion), the current-sentence highlight
+fades its ring in/out and pulses while its audio is still generating,
+play/pause and volume icons zoom-fade on swap, the progress strip gained a
+hover scrub knob, and the bars/reader/empty state get subtle one-time
+entrance animations (all `motion-reduce:animate-none`).
+
 ## Out of scope (deliberately)
 
 - MP3/M4B export (possible later "export" button; cache design already supports it).

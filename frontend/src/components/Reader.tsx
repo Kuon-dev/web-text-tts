@@ -37,7 +37,7 @@ export function Reader({ prefs, onPasteClick }: Props) {
 
   if (!chunks.length) {
     return (
-      <main className="flex flex-1 flex-col items-center justify-center gap-5 px-6 pb-28 text-center">
+      <main className="flex flex-1 flex-col items-center justify-center gap-5 px-6 pb-28 text-center animate-in fade-in zoom-in-95 duration-500 motion-reduce:animate-none">
         <div className="flex size-14 items-center justify-center rounded-lg border bg-card text-muted-foreground">
           <BookOpenText className="size-6" aria-hidden />
         </div>
@@ -57,7 +57,8 @@ export function Reader({ prefs, onPasteClick }: Props) {
 
   return (
     <main
-      className="mx-auto w-full flex-1 px-5 pt-10 pb-[50vh]"
+      key={docId}
+      className="mx-auto w-full flex-1 px-5 pt-10 pb-[50vh] animate-in fade-in slide-in-from-bottom-2 duration-500 motion-reduce:animate-none"
       style={{
         fontFamily: FONT_STACKS[prefs.font],
         fontSize: `${prefs.size}px`,
@@ -74,9 +75,12 @@ export function Reader({ prefs, onPasteClick }: Props) {
               id={`c${i}`}
               onClick={() => player.clickChunk(i)}
               className={cn(
-                "cursor-pointer rounded-sm box-decoration-clone px-0.5 transition-colors duration-150",
+                "cursor-pointer rounded-sm box-decoration-clone px-0.5 transition-[background-color,color,box-shadow] duration-200",
                 i === idx
-                  ? "bg-(--hl-bg) text-foreground ring-1 ring-(--hl-ring)"
+                  ? cn(
+                      "bg-(--hl-bg) text-foreground ring-1 ring-(--hl-ring)",
+                      !ready.has(chunk.id) && !failed.has(chunk.id) && "animate-pulse",
+                    )
                   : failed.has(chunk.id)
                     ? "text-destructive underline decoration-dotted underline-offset-4 hover:bg-accent/50"
                     : ready.has(chunk.id)
