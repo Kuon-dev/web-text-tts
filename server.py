@@ -8,6 +8,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from chunker import chunk_id, chunk_text, doc_id
@@ -16,7 +17,7 @@ from tts import VOICES
 log = logging.getLogger("novel-tts")
 STATIC_DIR = Path(__file__).parent / "static"
 POLL_SECONDS = 1.0
-DEFAULT_STATE = {"positions": {}, "voice": "af_heart", "speed": 1.0}
+DEFAULT_STATE = {"positions": {}, "voice": "af_heart", "speed": 1.0, "volume": 1.0}
 
 
 class DocBody(BaseModel):
@@ -27,6 +28,7 @@ class StateBody(BaseModel):
     position: int | None = None
     voice: str | None = None
     speed: float | None = None
+    volume: float | None = None
 
 
 class AppState:
@@ -51,6 +53,8 @@ class AppState:
                     loaded.pop("voice", None)
                 if not isinstance(loaded.get("speed"), (int, float)) or isinstance(loaded.get("speed"), bool):
                     loaded.pop("speed", None)
+                if not isinstance(loaded.get("volume"), (int, float)) or isinstance(loaded.get("volume"), bool):
+                    loaded.pop("volume", None)
                 self.state.update(loaded)
             except (json.JSONDecodeError, OSError, ValueError, TypeError):
                 log.warning("state.json unreadable, starting fresh")
@@ -79,6 +83,7 @@ class AppState:
             "doc_id": self.doc_id,
             "voice": voice,
             "speed": self.state["speed"],
+            "volume": self.state["volume"],
             "position": self.position(),
             "chunks": [
                 {"id": chunk_id(voice, c.text), "text": c.text, "para": c.para}
@@ -121,6 +126,10 @@ def create_app(data_dir: Path, worker, audio_wait: float = 30.0) -> FastAPI:
 
     app = FastAPI(lifespan=lifespan)
 
+    assets_dir = STATIC_DIR / "assets"
+    if assets_dir.exists():
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
     @app.get("/")
     def index():
         return FileResponse(STATIC_DIR / "index.html")
@@ -157,6 +166,8 @@ def create_app(data_dir: Path, worker, audio_wait: float = 30.0) -> FastAPI:
                 worker.set_position(pos)
             if body.speed is not None:
                 st.state["speed"] = min(3.0, max(0.5, body.speed))
+            if body.volume is not None:
+                st.state["volume"] = min(1.0, max(0.0, body.volume))
             if body.voice is not None and body.voice != st.state["voice"]:
                 if body.voice not in VOICES:
                     raise HTTPException(400, "unknown voice")

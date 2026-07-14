@@ -1,0 +1,29 @@
+import { BookAudio, ClipboardPaste } from "lucide-react"
+import { Button } from "@/components/ui/button"
+import { ReadingMenu } from "@/components/ReadingMenu"
+import type { ReadingPrefs } from "@/lib/reading"
+
+interface Props {
+  prefs: ReadingPrefs
+  update: (patch: Partial<ReadingPrefs>) => void
+  reset: () => void
+  onPasteClick: () => void
+}
+
+export function TopBar({ prefs, update, reset, onPasteClick }: Props) {
+  return (
+    <header className="sticky top-0 z-20 border-b bg-background/80 backdrop-blur">
+      <div className="mx-auto flex h-12 max-w-5xl items-center gap-2.5 px-4">
+        <BookAudio className="size-4 text-muted-foreground" aria-hidden />
+        <span className="text-sm font-semibold tracking-tight">novel-tts</span>
+        <div className="ml-auto flex items-center gap-2">
+          <ReadingMenu prefs={prefs} update={update} reset={reset} />
+          <Button size="sm" onClick={onPasteClick}>
+            <ClipboardPaste data-icon="inline-start" aria-hidden />
+            Paste chapter
+          </Button>
+        </div>
+      </div>
+    </header>
+  )
+}

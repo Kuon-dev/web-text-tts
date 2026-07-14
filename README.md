@@ -9,11 +9,24 @@ Local audiobook player for pasted light-novel text. Kokoro-82M TTS, browser play
 Paste a chapter (button top right, or edit `novel.txt`), press Play.
 
 - Space = play/pause · ←/→ = skip chunk · click any sentence to jump
-- Speed slider (pitch-preserved) · voice dropdown (Kokoro English voices)
-- Your position is saved per chapter — close anything, it resumes.
+- Bottom player bar: voice picker, transport, volume + mute, speed popover,
+  clickable chapter-progress strip
+- Aa menu (top right): reading font (Georgia / Literata / Inter / System),
+  size, line spacing, text width — saved in the browser
+- Position (per chapter), voice, speed, and volume are saved — close anything, it resumes.
 - Audio cache: `cache/` (2 GiB cap, auto-evicted). State: `state.json`.
 
 ## Dev
 
     .venv/bin/pytest -m "not slow"    # fast suite
     .venv/bin/pytest -m slow          # real-model smoke test
+
+### UI (React + Vite + shadcn/ui, in `frontend/`)
+
+    export PATH=~/node22/bin:$PATH
+    cd frontend
+    npm install            # once
+    npm run build          # emits the served app into ../static
+    npm run dev            # live-reload dev server on :5173, proxies /api to :8765
+
+The server serves the prebuilt `static/` — Node is only needed to change the UI.

@@ -4,3 +4,4 @@ novel.txt
 state.json
 __pycache__/
 .pytest_cache/
+frontend/node_modules/

@@ -160,6 +160,22 @@ def test_state_speed_is_clamped_to_supported_range(tmp_path):
     assert body["speed"] == 0.5
 
 
+def test_state_volume_is_clamped_and_persisted(tmp_path):
+    client, _ = make_client(tmp_path)
+    client.post("/api/doc", json={"text": "One.\nTwo.\nThree."})
+
+    assert client.get("/api/doc").json()["volume"] == 1.0  # default
+    resp = client.post("/api/state", json={"volume": 5})
+    assert resp.status_code == 200
+    assert client.get("/api/doc").json()["volume"] == 1.0  # clamped high
+    client.post("/api/state", json={"volume": -0.5})
+    assert client.get("/api/doc").json()["volume"] == 0.0  # clamped low
+    client.post("/api/state", json={"volume": 0.35})
+    # fresh app over the same data_dir = server restart
+    client2, _ = make_client(tmp_path)
+    assert client2.get("/api/doc").json()["volume"] == 0.35
+
+
 def test_audio_waits_for_async_generation(tmp_path):
     client, worker = make_client(tmp_path, worker_cls=AsyncGenWorker, audio_wait=2.0)
     client.post("/api/doc", json={"text": "Hello there."})
@@ -194,7 +210,9 @@ def test_position_survives_restart(tmp_path):
 
 
 def test_malformed_state_fields_fall_back(tmp_path):
-    (tmp_path / "state.json").write_text('{"positions": null, "voice": "not_a_voice", "speed": "fast"}')
+    (tmp_path / "state.json").write_text(
+        '{"positions": null, "voice": "not_a_voice", "speed": "fast", "volume": true}'
+    )
     client, _ = make_client(tmp_path)
     body = client.get("/api/doc").json()
-    assert body["voice"] == "af_heart" and body["speed"] == 1.0
+    assert body["voice"] == "af_heart" and body["speed"] == 1.0 and body["volume"] == 1.0
