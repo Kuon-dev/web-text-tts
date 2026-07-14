@@ -25,7 +25,10 @@ export function htmlChapter(html: string): HtmlChapter {
 
   const walk = (node: Node) => {
     if (node.nodeType === Node.TEXT_NODE) {
-      out.push(node.nodeValue ?? "")
+      // Newlines inside HTML text nodes are source pretty-printing, not
+      // breaks — browsers collapse them to spaces, so do the same. Only
+      // BR and block tags below may emit "\n".
+      out.push((node.nodeValue ?? "").replace(/\s+/g, " "))
       return
     }
     if (!(node instanceof Element)) return
