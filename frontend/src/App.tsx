@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react"
+import { LazyMotion, MotionConfig, domAnimation } from "motion/react"
 import { Toaster } from "sonner"
 import { PasteDialog } from "@/components/PasteDialog"
 import { PlayerBar } from "@/components/PlayerBar"
@@ -48,12 +49,16 @@ export default function App() {
   }
 
   return (
-    <div className="flex min-h-dvh flex-col">
-      <TopBar prefs={prefs} update={update} theme={theme} updateTheme={updateTheme} reset={resetAll} onPasteClick={openPaste} />
-      <Reader prefs={prefs} onPasteClick={openPaste} />
-      <PlayerBar />
-      <PasteDialog open={pasteOpen} onOpenChange={setPasteOpen} />
-      <Toaster theme={dark ? "dark" : "light"} position="bottom-right" offset={{ bottom: 88 }} />
-    </div>
+    <MotionConfig reducedMotion="user">
+      <LazyMotion features={domAnimation} strict>
+        <div className="flex min-h-dvh flex-col">
+          <TopBar prefs={prefs} update={update} theme={theme} updateTheme={updateTheme} reset={resetAll} onPasteClick={openPaste} />
+          <Reader prefs={prefs} onPasteClick={openPaste} />
+          <PlayerBar />
+          <PasteDialog open={pasteOpen} onOpenChange={setPasteOpen} />
+          <Toaster theme={dark ? "dark" : "light"} position="bottom-right" offset={{ bottom: 88 }} />
+        </div>
+      </LazyMotion>
+    </MotionConfig>
   )
 }

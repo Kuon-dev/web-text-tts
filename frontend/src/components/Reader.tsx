@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react"
 import { BookOpenText, ClipboardPaste } from "lucide-react"
+import { m } from "motion/react"
 import { Button } from "@/components/ui/button"
 import { useFollowChunk } from "@/lib/follow"
 import { player, usePlayer } from "@/lib/player"
@@ -64,7 +65,7 @@ export function Reader({ prefs, onPasteClick }: Props) {
   return (
     <main
       key={docId}
-      className="mx-auto w-full flex-1 px-5 pt-10 pb-[50vh] animate-in fade-in slide-in-from-bottom-2 duration-500 motion-reduce:animate-none"
+      className="mx-auto w-full flex-1 px-5 pt-10 pb-[50vh]"
       style={{
         fontFamily: FONT_STACKS[prefs.font],
         fontSize: `${prefs.size}px`,
@@ -73,8 +74,14 @@ export function Reader({ prefs, onPasteClick }: Props) {
         textAlign: prefs.justify ? "justify" : undefined,
       }}
     >
-      {paras.map((p) => (
-        <p key={p.para} style={{ marginBottom: `${prefs.paraSpacing}em` }}>
+      {paras.map((p, pi) => (
+        <m.p
+          key={p.para}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ type: "spring", stiffness: 120, damping: 20, delay: Math.min(pi * 0.04, 0.4) }}
+          style={{ marginBottom: `${prefs.paraSpacing}em` }}
+        >
           {p.items.map(({ chunk, i }) => (
             <span
               key={i}
@@ -95,7 +102,7 @@ export function Reader({ prefs, onPasteClick }: Props) {
               {chunk.text + " "}
             </span>
           ))}
-        </p>
+        </m.p>
       ))}
     </main>
   )

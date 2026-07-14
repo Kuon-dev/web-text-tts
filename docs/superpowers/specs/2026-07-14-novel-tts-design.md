@@ -142,6 +142,16 @@ reading line at 42% of the viewport with an ease-out rAF animation
 (~330–800ms scaled by distance), repositions instantly on document
 switch, and cancels when the user scrolls manually.
 
+**v2.4 (2026-07-15):** motion.dev (the `motion` package, LazyMotion +
+domAnimation, wrapped in `MotionConfig reducedMotion="user"`). Auto-scroll
+follow now drives a MotionValue spring (stiffness 110 / damping 24, slightly
+overdamped) so consecutive sentence advances inherit in-flight velocity —
+one continuous teleprompter motion instead of restarted ease curves.
+Play/pause and volume icons are stacked `m.span`s that spring cross-fade
+(the outgoing icon animates away too), the progress fill is spring-driven
+with the scrub knob riding its right edge, and paragraphs stagger in
+(capped 0.4s) on chapter load, replacing the reader's slide-in entrance.
+
 ## Out of scope (deliberately)
 
 - MP3/M4B export (possible later "export" button; cache design already supports it).

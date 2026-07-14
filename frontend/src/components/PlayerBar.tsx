@@ -1,6 +1,9 @@
 import { useMemo, useState } from "react"
 import type { MouseEvent } from "react"
 import { ChevronsUpDown, MicVocal, Pause, Play, SkipBack, SkipForward, Volume1, Volume2, VolumeX } from "lucide-react"
+import type { LucideIcon } from "lucide-react"
+import { m } from "motion/react"
+import type { Transition } from "motion/react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
@@ -18,6 +21,28 @@ import { voiceGroup, voiceLabel, voiceName } from "@/lib/api"
 import { player, usePlayer } from "@/lib/player"
 
 const SPEED_PRESETS = [1, 1.25, 1.5, 2]
+
+const ICON_SPRING: Transition = { type: "spring", stiffness: 480, damping: 32 }
+
+/** Cross-fades between stacked icons inside a fixed-size (relative) button —
+ *  unlike a keyed remount, the outgoing icon animates away too. */
+function IconStack<K extends string>({ active, icons }: { active: K; icons: Record<K, LucideIcon> }) {
+  return (
+    <>
+      {(Object.entries(icons) as [K, LucideIcon][]).map(([key, Icon]) => (
+        <m.span
+          key={key}
+          className="absolute inset-0 grid place-items-center"
+          initial={false}
+          animate={active === key ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 0.4 }}
+          transition={ICON_SPRING}
+        >
+          <Icon aria-hidden />
+        </m.span>
+      ))}
+    </>
+  )
+}
 
 function VoiceCombobox({ voice, voices }: { voice: string; voices: string[] }) {
   const [open, setOpen] = useState(false)
@@ -83,7 +108,7 @@ export function PlayerBar() {
   const n = chunks.length
   const pct = n ? ((idx + 1) / n) * 100 : 0
   const effectiveVolume = muted ? 0 : volume
-  const VolumeIcon = effectiveVolume === 0 ? VolumeX : effectiveVolume < 0.5 ? Volume1 : Volume2
+  const volState = effectiveVolume === 0 ? "muted" : effectiveVolume < 0.5 ? "low" : "high"
 
   const scrub = (e: MouseEvent<HTMLDivElement>) => {
     if (!n) return
@@ -104,15 +129,17 @@ export function PlayerBar() {
         aria-label="Chapter progress"
         title="Click to jump"
       >
-        <div
-          className="h-full bg-(--progress-fill) transition-[width] duration-300 ease-out"
-          style={{ width: `${pct}%` }}
-        />
-        <div
-          aria-hidden
-          className="pointer-events-none absolute top-1/2 size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground opacity-0 shadow-sm transition-[left,opacity] duration-300 ease-out group-hover/progress:opacity-100"
-          style={{ left: `${pct}%` }}
-        />
+        <m.div
+          className="relative h-full bg-(--progress-fill)"
+          initial={false}
+          animate={{ width: `${pct}%` }}
+          transition={{ type: "spring", stiffness: 200, damping: 30 }}
+        >
+          <div
+            aria-hidden
+            className="pointer-events-none absolute top-1/2 right-0 size-2.5 translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground opacity-0 shadow-sm transition-opacity duration-300 group-hover/progress:opacity-100"
+          />
+        </m.div>
       </div>
       <div className="mx-auto grid max-w-5xl grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 py-2.5">
         <div className="flex items-center">
@@ -132,16 +159,13 @@ export function PlayerBar() {
           </Button>
           <Button
             size="icon-lg"
+            className="relative"
             disabled={!n}
             onClick={() => player.togglePlay()}
             title="Play / pause (Space)"
             aria-label={playing ? "Pause" : "Play"}
           >
-            {playing ? (
-              <Pause className="animate-in fade-in zoom-in-75 duration-200" aria-hidden />
-            ) : (
-              <Play className="animate-in fade-in zoom-in-75 duration-200" aria-hidden />
-            )}
+            <IconStack active={playing ? "pause" : "play"} icons={{ play: Play, pause: Pause }} />
           </Button>
           <Button
             variant="ghost"
@@ -159,11 +183,12 @@ export function PlayerBar() {
           <Button
             variant="ghost"
             size="icon-sm"
+            className="relative"
             onClick={() => player.toggleMute()}
             title={muted ? "Unmute" : "Mute"}
             aria-label={muted ? "Unmute" : "Mute"}
           >
-            <VolumeIcon className="animate-in fade-in zoom-in-75 duration-200" aria-hidden />
+            <IconStack active={volState} icons={{ muted: VolumeX, low: Volume1, high: Volume2 }} />
           </Button>
           <Slider
             className="w-24 max-sm:hidden"
