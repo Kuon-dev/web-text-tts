@@ -1,6 +1,7 @@
-import { useEffect, useMemo } from "react"
+import { useMemo, useState } from "react"
 import { BookOpenText, ClipboardPaste } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { useFollowChunk } from "@/lib/follow"
 import { player, usePlayer } from "@/lib/player"
 import { FONT_STACKS, type ReadingPrefs } from "@/lib/reading"
 import { cn } from "@/lib/utils"
@@ -19,6 +20,15 @@ interface Para {
 export function Reader({ prefs, onPasteClick }: Props) {
   const { docId, chunks, idx, ready, failed } = usePlayer()
 
+  // Track the previously focused sentence so the one the voice just left
+  // can fade out slower than the new one fades in (trailing highlight).
+  const [trackedIdx, setTrackedIdx] = useState(idx)
+  const [prevIdx, setPrevIdx] = useState(-1)
+  if (trackedIdx !== idx) {
+    setPrevIdx(trackedIdx)
+    setTrackedIdx(idx)
+  }
+
   const paras = useMemo<Para[]>(() => {
     const groups: Para[] = []
     chunks.forEach((chunk, i) => {
@@ -29,11 +39,7 @@ export function Reader({ prefs, onPasteClick }: Props) {
     return groups
   }, [chunks])
 
-  const { autoScroll } = prefs
-  useEffect(() => {
-    if (!autoScroll) return
-    document.getElementById(`c${idx}`)?.scrollIntoView({ block: "center", behavior: "smooth" })
-  }, [idx, docId, autoScroll])
+  useFollowChunk(idx, docId, prefs.autoScroll && chunks.length > 0)
 
   if (!chunks.length) {
     return (
@@ -75,12 +81,10 @@ export function Reader({ prefs, onPasteClick }: Props) {
               id={`c${i}`}
               onClick={() => player.clickChunk(i)}
               className={cn(
-                "cursor-pointer rounded-sm box-decoration-clone px-0.5 transition-[background-color,color,box-shadow] duration-200",
+                "cursor-pointer rounded-sm box-decoration-clone px-0.5 transition-[background-color,color,box-shadow]",
+                i === prevIdx && i !== idx ? "duration-700" : "duration-200",
                 i === idx
-                  ? cn(
-                      "bg-(--hl-bg) text-foreground ring-1 ring-(--hl-ring)",
-                      !ready.has(chunk.id) && !failed.has(chunk.id) && "animate-pulse",
-                    )
+                  ? cn("hl-current text-foreground", !ready.has(chunk.id) && !failed.has(chunk.id) && "hl-buffering")
                   : failed.has(chunk.id)
                     ? "text-destructive underline decoration-dotted underline-offset-4 hover:bg-accent/50"
                     : ready.has(chunk.id)

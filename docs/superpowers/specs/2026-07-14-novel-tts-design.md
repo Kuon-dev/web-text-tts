@@ -132,6 +132,16 @@ play/pause and volume icons zoom-fade on swap, the progress strip gained a
 hover scrub knob, and the bars/reader/empty state get subtle one-time
 entrance animations (all `motion-reduce:animate-none`).
 
+**v2.3 (2026-07-15):** focused-reading overhaul. The current-sentence
+highlight settles in with a contracting-ring keyframe (`.hl-current` /
+`.hl-buffering` in index.css) while the sentence the voice just left fades
+out over 700ms (trailing highlight, previous-index tracked in Reader).
+Auto-scroll no longer uses native `scrollIntoView` (which snaps on short
+distances): `useFollowChunk` in `lib/follow.ts` glides the sentence to a
+reading line at 42% of the viewport with an ease-out rAF animation
+(~330–800ms scaled by distance), repositions instantly on document
+switch, and cancels when the user scrolls manually.
+
 ## Out of scope (deliberately)
 
 - MP3/M4B export (possible later "export" button; cache design already supports it).
