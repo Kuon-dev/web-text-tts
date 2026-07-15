@@ -2,6 +2,7 @@
 import logging
 import re
 import threading
+import time
 from itertools import chain
 from pathlib import Path
 
@@ -14,16 +15,35 @@ log = logging.getLogger("novel-tts")
 
 SAMPLE_RATE = 24000
 CACHE_CAP_BYTES = 2 * 1024 ** 3
-# The worker back-fills the whole document (listening position -> end, then
-# wrap-around to cover rewinds), so every GPU-idle moment banks cushion: once
-# a chapter is fully cached, playback never stalls and the GPU is untouched,
-# even when a game pins generation to ~1x realtime. Explicit client requests
-# still jump the queue. The byte budget stops the fill just short of the
-# cache cap so a pathological paste can never evict-and-regenerate its own
-# audio in an endless loop.
+# Under game GPU contention the 4060 can tip into VRAM paging, where
+# generation collapses from ~10x realtime to ~0.01x (measured 2026-07-15:
+# one chunk per 10-30 minutes while a game held 6.9GB of 8GB). The CPU does
+# a steady ~2x realtime (measured on the 5700X), so the engine watches its
+# own speed and fails over: a GPU chunk that measures below GPU_MIN_SPEED,
+# errors, or trips the mid-chunk stall watchdog sends later work to a CPU
+# pipeline and returns torch's cached VRAM to the game. The GPU is re-tried
+# on chunks nobody is waiting for, with exponential backoff.
+GPU_MIN_SPEED = 1.5
+GPU_STALL_SECONDS = 45.0
+GPU_RETRY_S = 600.0
+GPU_RETRY_MAX_S = 3600.0
+GPU_MIN_FREE_BYTES = 1_500_000_000  # start on CPU if a game already holds VRAM
+
+# Soon-needed window: chunks playback will reach in the next few minutes are
+# generated regardless of contention. Beyond it the worker back-fills the
+# whole document (position -> end, then wrap-around to cover rewinds), but
+# only while measured speed shows a free GPU: a worker busy on a far chunk
+# delays urgent jumps by a whole in-flight generation and fights the game
+# for the GPU. While slow, one probe chunk per FILL_PROBE_S keeps the speed
+# reading fresh. The byte budget stops the fill just short of the cache cap
+# so a pathological paste can never evict-and-regenerate its own audio.
 CHARS_PER_SECOND = 15.0  # narration pace measured on real chapters
+LOOKAHEAD_SECONDS = 180.0
+LOOKAHEAD_MAX_CHUNKS = 64
 EST_BYTES_PER_CHAR = SAMPLE_RATE * 2 / CHARS_PER_SECOND  # PCM16 mono WAV
 FILL_BUDGET_BYTES = CACHE_CAP_BYTES * 0.9
+FILL_MIN_SPEED = 4.0
+FILL_PROBE_S = 90.0
 MAX_ATTEMPTS = 2
 
 VOICES = [
@@ -35,44 +55,98 @@ VOICES = [
 
 
 class KokoroEngine:
-    """Lazy per-language KPipeline wrapper. Import cost paid on first synthesize."""
+    """Lazy per-(language, device) KPipeline wrapper with GPU->CPU failover."""
 
     def __init__(self):
         import torch
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         log.info("Kokoro device: %s", self.device)
         self._pipelines = {}
+        self._gpu_ok = True
+        self._gpu_retry_at = 0.0
+        self._gpu_retry_wait = GPU_RETRY_S
+        if self.device == "cuda":
+            free, _total = torch.cuda.mem_get_info()
+            if free < GPU_MIN_FREE_BYTES:
+                log.warning("GPU has only %dMB free — starting on CPU", free // 2**20)
+                self._gpu_ok = False
+                self._gpu_retry_at = time.monotonic() + GPU_RETRY_S
 
-    def _pipeline(self, voice: str):
-        lang = voice[0]
-        if lang not in self._pipelines:
+    def _pipeline(self, voice: str, device: str):
+        key = (voice[0], device)
+        if key not in self._pipelines:
             from kokoro import KPipeline
-            self._pipelines[lang] = KPipeline(lang_code=lang, device=self.device)
-        return self._pipelines[lang]
+            self._pipelines[key] = KPipeline(lang_code=voice[0], device=device)
+        return self._pipelines[key]
 
-    def synthesize(self, text: str, voice: str) -> np.ndarray:
+    def _pick_device(self, urgent: bool) -> str:
+        if self.device != "cuda" or self._gpu_ok:
+            return self.device
+        if not urgent and time.monotonic() >= self._gpu_retry_at:
+            return "cuda"  # probe on a chunk nobody is waiting for
+        return "cpu"
+
+    def _gpu_failed(self, reason: str):
+        import torch
+        level = log.warning if self._gpu_ok else log.info
+        level("GPU %s — using CPU (next GPU try in %.0fs)", reason, self._gpu_retry_wait)
+        self._gpu_ok = False
+        self._gpu_retry_at = time.monotonic() + self._gpu_retry_wait
+        self._gpu_retry_wait = min(self._gpu_retry_wait * 2, GPU_RETRY_MAX_S)
+        if torch.cuda.is_initialized():
+            torch.cuda.empty_cache()  # hand cached VRAM back to the game
+
+    def _gpu_measured(self, speed: float):
+        if speed < GPU_MIN_SPEED:
+            self._gpu_failed(f"at {speed:.2f}x realtime (contended)")
+        elif not self._gpu_ok:
+            log.info("GPU recovered (%.1fx realtime) — back to CUDA", speed)
+            self._gpu_ok = True
+            self._gpu_retry_wait = GPU_RETRY_S
+
+    def synthesize(self, text: str, voice: str, urgent: bool = False) -> np.ndarray:
         if not re.search(r"[A-Za-z0-9]", text):
             # scene separators ("***", "* * *", "◆ ◆ ◆") have no speakable
             # content and make Kokoro raise; treat them as a narrator pause.
             return np.zeros(int(0.4 * SAMPLE_RATE), dtype=np.float32)
         import torch
+        device = self._pick_device(urgent)
+        start = time.monotonic()
         pieces = []
-        for result in self._pipeline(voice)(text, voice=voice):
-            audio = getattr(result, "audio", None)
-            if audio is None and isinstance(result, tuple):
-                audio = result[2]
-            if audio is not None:
-                pieces.append(audio if isinstance(audio, torch.Tensor) else torch.as_tensor(audio))
+        try:
+            for result in self._pipeline(voice, device)(text, voice=voice):
+                audio = getattr(result, "audio", None)
+                if audio is None and isinstance(result, tuple):
+                    audio = result[2]
+                if audio is not None:
+                    pieces.append(audio if isinstance(audio, torch.Tensor) else torch.as_tensor(audio))
+                if device == "cuda" and time.monotonic() - start > GPU_STALL_SECONDS:
+                    raise RuntimeError(f"stalled mid-chunk (>{GPU_STALL_SECONDS:.0f}s)")
+        except Exception as exc:
+            if device == "cuda":
+                self._gpu_failed(str(exc))
+            raise
         if not pieces:
             raise RuntimeError(f"Kokoro produced no audio for: {text[:60]!r}")
-        return torch.cat(pieces).cpu().numpy().astype(np.float32)
+        out = torch.cat(pieces).cpu().numpy().astype(np.float32)
+        if device == "cuda":
+            wall = time.monotonic() - start
+            if wall >= 1.0 and len(out) >= 3 * SAMPLE_RATE:
+                self._gpu_measured((len(out) / SAMPLE_RATE) / wall)
+        return out
 
 
 class TTSWorker:
-    def __init__(self, cache_dir: Path, engine):
+    def __init__(self, cache_dir: Path, engine,
+                 fill_min_speed: float = FILL_MIN_SPEED,
+                 fill_probe_interval: float = FILL_PROBE_S):
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._engine = engine
+        self._fill_min_speed = fill_min_speed
+        self._fill_probe_interval = fill_probe_interval
+        self._speed = 0.0  # last measured generation speed, x realtime
+        self._last_fill_probe = time.monotonic() - fill_probe_interval
         self._cond = threading.Condition()
         self._chunks: list[Chunk] = []
         self._cids: list[str] = []
@@ -129,15 +203,31 @@ class TTSWorker:
 
     # -- worker loop ---------------------------------------------------------
     def _pick(self):
-        """Under lock: (cid, text) to generate next, or None."""
+        """Under lock: (cid, text, urgent) to generate next, or None."""
         by_id = dict(zip(self._cids, (c.text for c in self._chunks)))
         for cid in self._requests:
             if (cid in by_id and not self.path(cid).exists()
                     and self._attempts.get(cid, 0) < MAX_ATTEMPTS):
-                return cid, by_id[cid]
+                return cid, by_id[cid], True
         self._requests = [c for c in self._requests
                           if c in by_id and not self.path(c).exists()
                           and self._attempts.get(c, 0) < MAX_ATTEMPTS]
+        end, seconds = self._position, 0.0
+        while (end < len(self._cids)
+               and end - self._position < LOOKAHEAD_MAX_CHUNKS
+               and seconds < LOOKAHEAD_SECONDS):
+            seconds += len(self._chunks[end].text) / CHARS_PER_SECOND
+            end += 1
+        for idx in range(self._position, end):
+            cid = self._cids[idx]
+            if (not self.path(cid).exists() and cid not in self._failed
+                    and self._attempts.get(cid, 0) < MAX_ATTEMPTS):
+                return cid, self._chunks[idx].text, False
+        probing = self._speed < self._fill_min_speed
+        if probing:
+            now = time.monotonic()
+            if now - self._last_fill_probe < self._fill_probe_interval:
+                return None
         spent = 0.0
         for idx in chain(range(self._position, len(self._cids)),
                          range(0, self._position)):
@@ -147,7 +237,9 @@ class TTSWorker:
             cid = self._cids[idx]
             if (not self.path(cid).exists() and cid not in self._failed
                     and self._attempts.get(cid, 0) < MAX_ATTEMPTS):
-                return cid, self._chunks[idx].text
+                if probing:
+                    self._last_fill_probe = now
+                return cid, self._chunks[idx].text, False
         return None
 
     def _run(self):
@@ -157,16 +249,20 @@ class TTSWorker:
                 if job is None:
                     self._cond.wait(timeout=1.0)
                     continue
-                cid, text = job
+                cid, text, urgent = job
                 voice = self._voice
                 self._attempts[cid] = self._attempts.get(cid, 0) + 1
             try:
-                audio = self._engine.synthesize(text, voice)
+                start = time.monotonic()
+                audio = self._engine.synthesize(text, voice, urgent=urgent)
+                wall = time.monotonic() - start
                 tmp = self.path(cid).with_suffix(".tmp")
                 sf.write(tmp, audio, SAMPLE_RATE, format="WAV", subtype="PCM_16")
                 tmp.rename(self.path(cid))
                 self._enforce_cache_cap()
                 with self._cond:
+                    if wall >= 0.3 and len(audio) >= SAMPLE_RATE:
+                        self._speed = (len(audio) / SAMPLE_RATE) / wall
                     self._attempts.pop(cid, None)
                     if cid in self._events:
                         self._events[cid].set()

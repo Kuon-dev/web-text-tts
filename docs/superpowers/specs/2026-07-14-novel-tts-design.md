@@ -216,10 +216,35 @@ listening position to the end, then wrap-around from the top (covers
 rewinds). Every GPU-idle moment (menus, pauses, alt-tab) banks cushion; a
 ~1h chapter fully caches in roughly 7 minutes of free GPU and then plays
 with zero stalls — and zero GPU load competing with the game — for the rest
-of the session. The `LOOKAHEAD_*` constants are gone; the fill stops when
-the document's estimated audio (`EST_BYTES_PER_CHAR` = 3200, PCM16 at 15
-chars/s) would exceed 90% of the 2GB cache cap, so a pathological paste can
-never evict-and-regenerate its own audio in a loop.
+of the session. The fill stops when the document's estimated audio
+(`EST_BYTES_PER_CHAR` = 3200, PCM16 at 15 chars/s) would exceed 90% of the
+2GB cache cap, so a pathological paste can never evict-and-regenerate its
+own audio in a loop.
+
+## Addendum: CPU failover + gated back-fill (2026-07-15, v2.8)
+
+v2.7's unconditional back-fill made things worse while gaming: continuous
+generation grows torch's VRAM footprint alongside the game, and on an 8GB
+card that tips CUDA into VRAM paging, where generation collapses from ~10x
+realtime to ~0.01x (measured: one chunk per 10-30 minutes, server CPU-spinning
+at 100% the whole time). Two fixes:
+
+- **GPU→CPU failover in the engine.** The 5700X generates a measured 2.1x
+  realtime on CPU — ~200x faster than a paging GPU and fast enough to feed
+  playback. The engine measures every GPU chunk; below `GPU_MIN_SPEED`
+  (1.5x), on error, or when a chunk trips the 45s mid-chunk stall watchdog,
+  it fails over to a CPU pipeline and calls `torch.cuda.empty_cache()` so
+  the game gets the VRAM back. The GPU is re-probed only on chunks nobody
+  is waiting for (never explicit client requests), with exponential backoff
+  (10 min doubling to 1h). At startup, less than 1.5GB free VRAM means a
+  game is already resident → start on CPU outright.
+- **Speed-gated back-fill in the worker.** The v2.6 lookahead window
+  (`LOOKAHEAD_SECONDS` = 180) is restored as the always-generated set;
+  back-fill beyond it runs only while the worker's own measured speed is at
+  least `FILL_MIN_SPEED` (4x — a free GPU does ~10x, contended GPU 1-2x,
+  CPU ~2x). While gated, one probe chunk per 90s keeps the speed reading
+  fresh. This also stops far-chunk generations from delaying urgent jumps
+  by a whole in-flight synthesis.
 
 ## Out of scope (deliberately)
 
