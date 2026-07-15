@@ -270,6 +270,31 @@ live device on the existing 2s poll. The player bar gets a GPU/CPU selector
 the live active device as its label, and the measured ×-realtime speed.
 Switching mode never invalidates cache — chunk IDs hash voice+text only.
 
+## Addendum: Wallpaper + opacity (2026-07-15, v2.10)
+
+The reader can now show a user-chosen wallpaper behind the text.
+
+- **Storage:** one raw image file at `<data_dir>/wallpaper`, validated with
+  the same magic-byte sniffing as illustrations (png/jpeg/gif/webp, 25MB
+  cap). Server-side so it survives restarts and follows the server across
+  browsers/devices.
+- **API:** `POST /api/wallpaper` (raw bytes) → `{"wallpaper": {id, w, h,
+  format}}`; `GET /api/wallpaper/info` for presence on page load;
+  `GET /api/wallpaper` serves the bytes immutable (the frontend appends
+  `?v=<sha1>` so replacing the image busts the cache); `DELETE
+  /api/wallpaper` removes it.
+- **Rendering:** a `fixed inset-0 -z-10 bg-cover bg-center` layer under the
+  content. It paints *above* the theme's body background, so lowering
+  opacity fades the image toward the theme color (dark mode dims it, light
+  mode washes it out) — text stays readable at any setting. The top/player
+  bars keep their translucent `backdrop-blur`, which blurs the wallpaper
+  behind them.
+- **Controls:** an Aa-menu "Wallpaper" section — Choose/Replace image (file
+  picker), Remove, and an opacity slider (5–100%, default 30%). Opacity is
+  a display pref, so it lives in `localStorage["novel-tts:reading"]` as
+  `wallpaperOpacity` next to font/size/theme; "Reset to defaults" resets
+  opacity but deliberately does not delete the uploaded image.
+
 ## Out of scope (deliberately)
 
 - MP3/M4B export (possible later "export" button; cache design already supports it).

@@ -10,6 +10,7 @@ export interface ReadingPrefs {
   paraSpacing: number
   justify: boolean
   autoScroll: boolean
+  wallpaperOpacity: number
 }
 
 export const FONT_STACKS: Record<FontKey, string> = {
@@ -34,6 +35,7 @@ export const DEFAULT_PREFS: ReadingPrefs = {
   paraSpacing: 1.1,
   justify: false,
   autoScroll: true,
+  wallpaperOpacity: 0.3,
 }
 
 const STORAGE_KEY = "novel-tts:reading"
@@ -52,6 +54,7 @@ function loadPrefs(): ReadingPrefs {
     p.paraSpacing = clamp(Number(p.paraSpacing) || DEFAULT_PREFS.paraSpacing, 0.4, 2.4)
     p.justify = typeof p.justify === "boolean" ? p.justify : DEFAULT_PREFS.justify
     p.autoScroll = typeof p.autoScroll === "boolean" ? p.autoScroll : DEFAULT_PREFS.autoScroll
+    p.wallpaperOpacity = clamp(Number(p.wallpaperOpacity) || DEFAULT_PREFS.wallpaperOpacity, 0.05, 1)
     return p
   } catch {
     return DEFAULT_PREFS

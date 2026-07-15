@@ -8,11 +8,13 @@ import { TopBar } from "@/components/TopBar"
 import { player } from "@/lib/player"
 import { useReadingPrefs } from "@/lib/reading"
 import { useTheme } from "@/lib/theme"
+import { useWallpaper, wallpaperUrl } from "@/lib/wallpaper"
 
 export default function App() {
   const [pasteOpen, setPasteOpen] = useState(false)
   const { prefs, update, reset } = useReadingPrefs()
   const { theme, dark, update: updateTheme, reset: resetTheme } = useTheme()
+  const { wallpaper, upload: uploadWallpaper, remove: removeWallpaper } = useWallpaper()
 
   useEffect(() => {
     player.start()
@@ -52,7 +54,24 @@ export default function App() {
     <MotionConfig reducedMotion="user">
       <LazyMotion features={domAnimation} strict>
         <div className="flex min-h-dvh flex-col">
-          <TopBar prefs={prefs} update={update} theme={theme} updateTheme={updateTheme} reset={resetAll} onPasteClick={openPaste} />
+          {wallpaper && (
+            <div
+              aria-hidden
+              className="pointer-events-none fixed inset-0 -z-10 bg-cover bg-center transition-opacity duration-300"
+              style={{ backgroundImage: `url("${wallpaperUrl(wallpaper)}")`, opacity: prefs.wallpaperOpacity }}
+            />
+          )}
+          <TopBar
+            prefs={prefs}
+            update={update}
+            theme={theme}
+            updateTheme={updateTheme}
+            reset={resetAll}
+            onPasteClick={openPaste}
+            wallpaper={wallpaper}
+            uploadWallpaper={uploadWallpaper}
+            removeWallpaper={removeWallpaper}
+          />
           <Reader prefs={prefs} onPasteClick={openPaste} />
           <PlayerBar />
           <PasteDialog open={pasteOpen} onOpenChange={setPasteOpen} />

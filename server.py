@@ -1,5 +1,6 @@
-"""FastAPI app: doc/state/status/audio API + static player, novel.txt mtime polling."""
+"""FastAPI app: doc/state/status/audio/wallpaper API + static player, novel.txt mtime polling."""
 import asyncio
+import hashlib
 import json
 import logging
 import threading
@@ -12,7 +13,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from chunker import chunk_id, chunk_text, doc_id, doc_images
-from images import ImageError, ImageStore
+from images import MAX_IMAGE_BYTES, MEDIA_TYPES, ImageError, ImageStore, sniff
 from tts import ENGINE_MODES, VOICES
 
 log = logging.getLogger("novel-tts")
@@ -233,6 +234,49 @@ def create_app(data_dir: Path, worker, audio_wait: float = 30.0, engine=None) ->
             st.images.path(iid), media_type=media,
             headers={"Cache-Control": "max-age=31536000, immutable"},
         )
+
+    # Wallpaper: one raw image file, format sniffed like illustrations. The
+    # frontend cache-busts with ?v=<sha1>, so the served bytes can be immutable.
+    wallpaper_path = data_dir / "wallpaper"
+
+    def _wallpaper_info() -> dict | None:
+        if not wallpaper_path.exists():
+            return None
+        data = wallpaper_path.read_bytes()
+        info = sniff(data)
+        if not info:
+            return None
+        fmt, w, h = info
+        return {"id": hashlib.sha1(data).hexdigest(), "w": w, "h": h, "format": fmt}
+
+    @app.get("/api/wallpaper/info")
+    def get_wallpaper_info():
+        return {"wallpaper": _wallpaper_info()}
+
+    @app.get("/api/wallpaper")
+    def get_wallpaper():
+        info = _wallpaper_info()
+        if info is None:
+            raise HTTPException(404, "no wallpaper set")
+        return FileResponse(
+            wallpaper_path, media_type=MEDIA_TYPES[info["format"]],
+            headers={"Cache-Control": "max-age=31536000, immutable"},
+        )
+
+    @app.post("/api/wallpaper")
+    async def post_wallpaper(request: Request):
+        data = await request.body()
+        if len(data) > MAX_IMAGE_BYTES:
+            raise HTTPException(400, "image too large (25MB max)")
+        if not sniff(data):
+            raise HTTPException(400, "unsupported image format (png/jpeg/gif/webp only)")
+        wallpaper_path.write_bytes(data)
+        return {"wallpaper": _wallpaper_info()}
+
+    @app.delete("/api/wallpaper")
+    def delete_wallpaper():
+        wallpaper_path.unlink(missing_ok=True)
+        return {"wallpaper": None}
 
     @app.get("/api/audio/{cid}")
     def get_audio(cid: str):
