@@ -2,8 +2,28 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
+
+/* Reading fonts (all bundled locally; wght-italic gives true italics, not synthesized) */
 @import "@fontsource-variable/inter";
+@import "@fontsource-variable/inter/wght-italic.css";
 @import "@fontsource-variable/literata";
+@import "@fontsource-variable/literata/wght-italic.css";
+@import "@fontsource-variable/lora";
+@import "@fontsource-variable/lora/wght-italic.css";
+@import "@fontsource-variable/merriweather";
+@import "@fontsource-variable/merriweather/wght-italic.css";
+@import "@fontsource-variable/eb-garamond";
+@import "@fontsource-variable/eb-garamond/wght-italic.css";
+@import "@fontsource-variable/crimson-pro";
+@import "@fontsource-variable/crimson-pro/wght-italic.css";
+@import "@fontsource-variable/bitter";
+@import "@fontsource-variable/bitter/wght-italic.css";
+@import "@fontsource-variable/nunito";
+@import "@fontsource-variable/nunito/wght-italic.css";
+@import "@fontsource/atkinson-hyperlegible";
+@import "@fontsource/atkinson-hyperlegible/700.css";
+@import "@fontsource/atkinson-hyperlegible/400-italic.css";
+@import "@fontsource/atkinson-hyperlegible/700-italic.css";
 
 @custom-variant dark (&:is(.dark *));
 

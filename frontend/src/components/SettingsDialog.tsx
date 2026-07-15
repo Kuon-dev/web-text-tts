@@ -11,13 +11,23 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
 import { EngineModeList } from "@/components/EngineModePicker"
 import { VoiceCombobox } from "@/components/VoiceCombobox"
 import {
+  FONT_GROUPS,
+  FONT_HINTS,
   FONT_LABELS,
   FONT_STACKS,
   WALLPAPER_FIT_LABELS,
@@ -260,13 +270,25 @@ export function SettingsDialog({ prefs, update, theme, updateTheme, reset, wallp
                 <Label className="text-xs text-muted-foreground">Font</Label>
                 <Select value={prefs.font} onValueChange={(v) => update({ font: v as FontKey })}>
                   <SelectTrigger size="sm" className="w-full">
-                    <SelectValue />
+                    <SelectValue>
+                      <span style={{ fontFamily: FONT_STACKS[prefs.font] }}>{FONT_LABELS[prefs.font]}</span>
+                    </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    {(Object.keys(FONT_LABELS) as FontKey[]).map((k) => (
-                      <SelectItem key={k} value={k}>
-                        <span style={{ fontFamily: FONT_STACKS[k] }}>{FONT_LABELS[k]}</span>
-                      </SelectItem>
+                    {FONT_GROUPS.map(({ label, fonts }) => (
+                      <SelectGroup key={label}>
+                        <SelectLabel>{label}</SelectLabel>
+                        {fonts.map((k) => (
+                          <SelectItem key={k} value={k}>
+                            <span className="flex w-full items-baseline justify-between gap-3">
+                              <span className="text-sm" style={{ fontFamily: FONT_STACKS[k] }}>
+                                {FONT_LABELS[k]}
+                              </span>
+                              <span className="text-xs text-muted-foreground">{FONT_HINTS[k]}</span>
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
                     ))}
                   </SelectContent>
                 </Select>

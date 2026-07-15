@@ -1,6 +1,17 @@
 import { useCallback, useState } from "react"
 
-export type FontKey = "georgia" | "literata" | "inter" | "system"
+export type FontKey =
+  | "georgia"
+  | "literata"
+  | "lora"
+  | "merriweather"
+  | "ebgaramond"
+  | "crimson"
+  | "bitter"
+  | "inter"
+  | "nunito"
+  | "atkinson"
+  | "system"
 
 export type WallpaperFit = "cover" | "contain" | "stretch" | "tile" | "center"
 
@@ -32,16 +43,50 @@ export interface ReadingPrefs {
 export const FONT_STACKS: Record<FontKey, string> = {
   georgia: 'Georgia, "Times New Roman", serif',
   literata: '"Literata Variable", Georgia, serif',
+  lora: '"Lora Variable", Georgia, serif',
+  merriweather: '"Merriweather Variable", Georgia, serif',
+  ebgaramond: '"EB Garamond Variable", Garamond, Georgia, serif',
+  crimson: '"Crimson Pro Variable", Georgia, serif',
+  bitter: '"Bitter Variable", "Roboto Slab", Georgia, serif',
   inter: '"Inter Variable", system-ui, sans-serif',
+  nunito: '"Nunito Variable", system-ui, sans-serif',
+  atkinson: '"Atkinson Hyperlegible", system-ui, sans-serif',
   system: 'system-ui, -apple-system, "Segoe UI", sans-serif',
 }
 
 export const FONT_LABELS: Record<FontKey, string> = {
   georgia: "Georgia",
   literata: "Literata",
+  lora: "Lora",
+  merriweather: "Merriweather",
+  ebgaramond: "EB Garamond",
+  crimson: "Crimson Pro",
+  bitter: "Bitter",
   inter: "Inter",
+  nunito: "Nunito",
+  atkinson: "Atkinson Hyperlegible",
   system: "System",
 }
+
+/** Short style hints shown next to each font in the picker. */
+export const FONT_HINTS: Record<FontKey, string> = {
+  georgia: "classic",
+  literata: "e-book",
+  lora: "calligraphic",
+  merriweather: "sturdy",
+  ebgaramond: "old print",
+  crimson: "elegant",
+  bitter: "slab",
+  inter: "modern",
+  nunito: "rounded",
+  atkinson: "high legibility",
+  system: "device default",
+}
+
+export const FONT_GROUPS: { label: string; fonts: FontKey[] }[] = [
+  { label: "Serif", fonts: ["georgia", "literata", "lora", "merriweather", "ebgaramond", "crimson", "bitter"] },
+  { label: "Sans serif", fonts: ["inter", "nunito", "atkinson", "system"] },
+]
 
 export const DEFAULT_PREFS: ReadingPrefs = {
   font: "georgia",
