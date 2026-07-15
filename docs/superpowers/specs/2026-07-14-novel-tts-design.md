@@ -339,6 +339,23 @@ The reader can now show a user-chosen wallpaper behind the text.
   Averia Serif Libre "storybook") — 18 reading fonts total. True
   italics where the face ships them; script faces have none by nature.
 
+## Addendum: VRAM-gated GPU recovery probe (2026-07-16, v2.12.1)
+
+Field failure in auto mode (2026-07-16 00:03): when the GPU retry backoff
+expired while a game held 7.2/8 GB VRAM, the recovery probe landed on a
+paging GPU and blocked the single worker thread for 7+ minutes. The
+mid-chunk stall watchdog cannot interrupt it — it only runs between Kokoro
+output segments, and most ≤400-char chunks yield exactly one, so the whole
+forward pass is one uninterruptible block. Urgent playhead requests queued
+behind the probe and playback froze.
+
+Fix: `_pick_device` now calls `_gpu_probe_allowed()` before probing —
+`torch.cuda.mem_get_info()` must show ≥ `GPU_MIN_FREE_BYTES` (1.5 GB, the
+same threshold startup uses) or the probe is deferred and re-checked every
+`GPU_VRAM_POLL_S` (30 s). The check costs microseconds, so recovery after
+the game exits happens within ~30 s instead of risking a multi-minute
+freeze per backoff expiry. One log line per contention episode.
+
 ## Out of scope (deliberately)
 
 - MP3/M4B export (possible later "export" button; cache design already supports it).
