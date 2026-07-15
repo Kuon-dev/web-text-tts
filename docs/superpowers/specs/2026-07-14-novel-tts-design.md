@@ -246,6 +246,30 @@ at 100% the whole time). Two fixes:
   fresh. This also stops far-chunk generations from delaying urgent jumps
   by a whole in-flight synthesis.
 
+## Addendum: User-selectable engine mode (2026-07-15, v2.9)
+
+v2.8's failover is automatic; the user asked for direct control so gaming
+sessions never have to *discover* the contention. `ENGINE_MODES`:
+
+- **auto** (default) — the v2.8 behavior unchanged: GPU with speed-measured
+  failover to CPU and backoff-gated re-probes.
+- **gpu** — pinned to CUDA. No speed failover, no stall watchdog, no
+  startup low-VRAM check: the user chose it.
+- **cpu** — never touches the GPU. Cuda pipelines are dropped +
+  `empty_cache()` on switch (re-released after any in-flight GPU chunk
+  finishes, via a dirty flag), and a server *started* in cpu mode skips
+  `mem_get_info` so no CUDA context (~300MB VRAM) is ever created. Every
+  byte of the 4060 stays with the game.
+
+Plumbing: mode persists as `state.json["engine"]` (validated like voice);
+`POST /api/state {"engine": ...}` applies it live via `engine.set_mode()`
+(no restart — pipelines are lazy per (lang, device)); `GET /api/status`
+gains `"engine": {mode, active, gpu_available, speed}` so the UI shows the
+live device on the existing 2s poll. The player bar gets a GPU/CPU selector
+(next to the voice picker) with the three modes described in gaming terms,
+the live active device as its label, and the measured ×-realtime speed.
+Switching mode never invalidates cache — chunk IDs hash voice+text only.
+
 ## Out of scope (deliberately)
 
 - MP3/M4B export (possible later "export" button; cache design already supports it).

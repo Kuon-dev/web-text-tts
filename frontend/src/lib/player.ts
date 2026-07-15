@@ -1,5 +1,15 @@
 import { useSyncExternalStore } from "react"
-import { api, audioUrl, type Chunk, type Doc, type ImageRef, type Status, type VoicesResponse } from "./api"
+import {
+  api,
+  audioUrl,
+  type Chunk,
+  type Doc,
+  type EngineInfo,
+  type EngineMode,
+  type ImageRef,
+  type Status,
+  type VoicesResponse,
+} from "./api"
 
 export interface PlayerSnapshot {
   docId: string
@@ -14,6 +24,7 @@ export interface PlayerSnapshot {
   muted: boolean
   voice: string
   voices: string[]
+  engine: EngineInfo | null
 }
 
 const RETRY_MS = 2000
@@ -36,6 +47,7 @@ class PlayerEngine {
   private playToken = 0
   private saveTimer: ReturnType<typeof setTimeout> | undefined
   private voices: string[] = []
+  private engine: EngineInfo | null = null
   private started = false
   private listeners = new Set<() => void>()
   private snap: PlayerSnapshot
@@ -71,6 +83,7 @@ class PlayerEngine {
       muted: this.muted,
       voice: this.doc.voice,
       voices: this.voices,
+      engine: this.engine,
     }
   }
 
@@ -102,6 +115,7 @@ class PlayerEngine {
   private async pollStatus() {
     try {
       const s = await api<Status>("/api/status")
+      if (s.engine) this.engine = s.engine
       if (s.doc_id !== this.doc.doc_id) {
         this.audio.pause()
         this.playing = false
@@ -222,6 +236,24 @@ class PlayerEngine {
     this.muted = !this.muted
     this.audio.muted = this.muted
     this.emit()
+  }
+
+  /** Returns true on success; false means the change failed and was rolled back. */
+  async setEngineMode(mode: EngineMode): Promise<boolean> {
+    const previous = this.engine
+    if (this.engine) {
+      // optimistic; the 2s status poll corrects `active`/`speed` shortly
+      this.engine = { ...this.engine, mode, active: mode === "cpu" ? "cpu" : this.engine.active }
+      this.emit()
+    }
+    try {
+      await api("/api/state", { engine: mode })
+      return true
+    } catch {
+      this.engine = previous
+      this.emit()
+      return false
+    }
   }
 
   /** Returns true on success; false means the change failed and was rolled back. */

@@ -21,10 +21,20 @@ export interface Doc {
   images?: ImageRef[]
 }
 
+export type EngineMode = "auto" | "gpu" | "cpu"
+
+export interface EngineInfo {
+  mode: EngineMode
+  active: "gpu" | "cpu"
+  gpu_available: boolean
+  speed: number
+}
+
 export interface Status {
   doc_id: string
   ready: string[]
   failed: string[]
+  engine?: EngineInfo
 }
 
 export interface VoicesResponse {

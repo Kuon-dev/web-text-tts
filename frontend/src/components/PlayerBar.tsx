@@ -1,6 +1,19 @@
 import { useMemo, useState } from "react"
 import type { MouseEvent } from "react"
-import { ChevronsUpDown, MicVocal, Pause, Play, SkipBack, SkipForward, Volume1, Volume2, VolumeX } from "lucide-react"
+import {
+  ChevronsUpDown,
+  Cpu,
+  Gpu,
+  MicVocal,
+  Pause,
+  Play,
+  SkipBack,
+  SkipForward,
+  Sparkles,
+  Volume1,
+  Volume2,
+  VolumeX,
+} from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { m } from "motion/react"
 import type { Transition } from "motion/react"
@@ -17,8 +30,9 @@ import {
 import { Label } from "@/components/ui/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Slider } from "@/components/ui/slider"
-import { voiceGroup, voiceLabel, voiceName } from "@/lib/api"
+import { voiceGroup, voiceLabel, voiceName, type EngineInfo, type EngineMode } from "@/lib/api"
 import { player, usePlayer } from "@/lib/player"
+import { cn } from "@/lib/utils"
 
 const SPEED_PRESETS = [1, 1.25, 1.5, 2]
 
@@ -103,8 +117,75 @@ function VoiceCombobox({ voice, voices }: { voice: string; voices: string[] }) {
   )
 }
 
+const ENGINE_OPTIONS: { key: EngineMode; label: string; Icon: LucideIcon; desc: string }[] = [
+  { key: "auto", label: "Auto", Icon: Sparkles, desc: "GPU when it's free, CPU when a game needs it" },
+  { key: "gpu", label: "GPU", Icon: Gpu, desc: "Always the GPU — fastest, but competes with games" },
+  { key: "cpu", label: "CPU", Icon: Cpu, desc: "Never touches the GPU — smoothest for gaming" },
+]
+
+function EngineMenu({ engine }: { engine: EngineInfo | null }) {
+  const mode = engine?.mode ?? "auto"
+  const active = engine?.active ?? "gpu"
+  const ActiveIcon = active === "gpu" ? Gpu : Cpu
+
+  const select = async (m: EngineMode) => {
+    if (m !== mode && !(await player.setEngineMode(m))) {
+      toast.error("Engine change failed — is the server running?")
+    }
+  }
+
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          title="Voice engine (GPU / CPU)"
+          aria-label="Voice engine"
+          className="font-normal"
+        >
+          <ActiveIcon className="size-3.5 text-muted-foreground" aria-hidden />
+          <span className="text-xs max-sm:hidden">{active.toUpperCase()}</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-72">
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <Label className="text-xs text-muted-foreground">Voice engine</Label>
+            <span className="text-xs tabular-nums text-muted-foreground">
+              {active.toUpperCase()}
+              {engine && engine.speed > 0 ? ` · ${engine.speed.toFixed(1)}× realtime` : ""}
+            </span>
+          </div>
+          <div className="space-y-1">
+            {ENGINE_OPTIONS.map(({ key, label, Icon, desc }) => (
+              <button
+                key={key}
+                type="button"
+                disabled={key !== "cpu" && engine !== null && !engine.gpu_available}
+                onClick={() => void select(key)}
+                aria-pressed={mode === key}
+                className={cn(
+                  "flex w-full cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50",
+                  mode === key && "bg-secondary",
+                )}
+              >
+                <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium">{label}</span>
+                  <span className="block text-xs text-muted-foreground">{desc}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </PopoverContent>
+    </Popover>
+  )
+}
+
 export function PlayerBar() {
-  const { chunks, idx, playing, speed, volume, muted, voice, voices } = usePlayer()
+  const { chunks, idx, playing, speed, volume, muted, voice, voices, engine } = usePlayer()
   const n = chunks.length
   const pct = n ? ((idx + 1) / n) * 100 : 0
   const effectiveVolume = muted ? 0 : volume
@@ -142,8 +223,9 @@ export function PlayerBar() {
         </m.div>
       </div>
       <div className="mx-auto grid max-w-5xl grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 py-2.5">
-        <div className="flex items-center">
+        <div className="flex items-center gap-2">
           <VoiceCombobox voice={voice} voices={voices} />
+          <EngineMenu engine={engine} />
         </div>
 
         <div className="flex items-center gap-1.5">

@@ -13,12 +13,13 @@ from pydantic import BaseModel
 
 from chunker import chunk_id, chunk_text, doc_id, doc_images
 from images import ImageError, ImageStore
-from tts import VOICES
+from tts import ENGINE_MODES, VOICES
 
 log = logging.getLogger("novel-tts")
 STATIC_DIR = Path(__file__).parent / "static"
 POLL_SECONDS = 1.0
-DEFAULT_STATE = {"positions": {}, "voice": "af_heart", "speed": 1.0, "volume": 1.0}
+DEFAULT_STATE = {"positions": {}, "voice": "af_heart", "speed": 1.0, "volume": 1.0,
+                 "engine": "auto"}
 
 
 class DocBody(BaseModel):
@@ -30,6 +31,7 @@ class StateBody(BaseModel):
     voice: str | None = None
     speed: float | None = None
     volume: float | None = None
+    engine: str | None = None
 
 
 class ImageFetchBody(BaseModel):
@@ -62,6 +64,8 @@ class AppState:
                     loaded.pop("speed", None)
                 if not isinstance(loaded.get("volume"), (int, float)) or isinstance(loaded.get("volume"), bool):
                     loaded.pop("volume", None)
+                if loaded.get("engine") not in ENGINE_MODES:
+                    loaded.pop("engine", None)
                 self.state.update(loaded)
             except (json.JSONDecodeError, OSError, ValueError, TypeError):
                 log.warning("state.json unreadable, starting fresh")
@@ -110,10 +114,12 @@ class AppState:
         return any(chunk_id(voice, c.text) == cid for c in self.chunks)
 
 
-def create_app(data_dir: Path, worker, audio_wait: float = 30.0) -> FastAPI:
+def create_app(data_dir: Path, worker, audio_wait: float = 30.0, engine=None) -> FastAPI:
     data_dir = Path(data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
     st = AppState(data_dir, worker)
+    if engine is not None:
+        engine.set_mode(st.state["engine"])
     with st.lock:
         st.load_doc()
 
@@ -163,7 +169,11 @@ def create_app(data_dir: Path, worker, audio_wait: float = 30.0) -> FastAPI:
     def get_status():
         with st.lock:
             did = st.doc_id
-        return {"doc_id": did, **worker.status()}
+        out = {"doc_id": did, **worker.status()}
+        if engine is not None:
+            out["engine"] = {**engine.info(),
+                             "speed": round(getattr(worker, "speed", 0.0), 2)}
+        return out
 
     @app.get("/api/voices")
     def get_voices():
@@ -182,6 +192,12 @@ def create_app(data_dir: Path, worker, audio_wait: float = 30.0) -> FastAPI:
                 st.state["speed"] = min(3.0, max(0.5, body.speed))
             if body.volume is not None:
                 st.state["volume"] = min(1.0, max(0.0, body.volume))
+            if body.engine is not None:
+                if body.engine not in ENGINE_MODES:
+                    raise HTTPException(400, "unknown engine mode")
+                st.state["engine"] = body.engine
+                if engine is not None:
+                    engine.set_mode(body.engine)
             if body.voice is not None and body.voice != st.state["voice"]:
                 if body.voice not in VOICES:
                     raise HTTPException(400, "unknown voice")
@@ -243,8 +259,15 @@ def main():
         log.warning("espeak-ng not found — rare words may mispronounce "
                     "(fix: sudo apt-get install espeak-ng)")
     root = Path(__file__).parent
-    worker = TTSWorker(root / "cache", KokoroEngine())
-    app = create_app(root, worker)
+    # peek at the persisted mode so a "cpu"-pinned engine never even creates
+    # a CUDA context (AppState re-validates and applies it in create_app)
+    try:
+        mode = json.loads((root / "state.json").read_text()).get("engine", "auto")
+    except (OSError, json.JSONDecodeError, AttributeError):
+        mode = "auto"
+    engine = KokoroEngine(mode=mode)
+    worker = TTSWorker(root / "cache", engine)
+    app = create_app(root, worker, engine=engine)
     log.info("novel-tts ready: http://localhost:8765")
     uvicorn.run(app, host="127.0.0.1", port=8765, log_level="warning")
 

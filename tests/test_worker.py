@@ -135,6 +135,7 @@ def test_engine_fails_over_to_cpu_when_gpu_slow():
     from tts import GPU_MIN_SPEED, GPU_RETRY_S, KokoroEngine
     e = KokoroEngine.__new__(KokoroEngine)  # skip __init__ (no torch/model needed)
     e.device = "cuda"
+    e._mode = "auto"
     e._gpu_ok = True
     e._gpu_retry_at = 0.0
     e._gpu_retry_wait = GPU_RETRY_S
@@ -145,6 +146,27 @@ def test_engine_fails_over_to_cpu_when_gpu_slow():
     e._gpu_retry_at = 0.0  # pretend the retry backoff has elapsed
     assert e._pick_device(urgent=False) == "cuda"  # non-urgent probe allowed
     e._gpu_measured(GPU_MIN_SPEED * 4)  # probe measured a free GPU
+    assert e._pick_device(urgent=True) == "cuda"
+
+
+def test_engine_mode_pins_device_and_releases_gpu():
+    from tts import GPU_RETRY_S, KokoroEngine
+    e = KokoroEngine.__new__(KokoroEngine)  # skip __init__ (no torch/model needed)
+    e.device = "cuda"
+    e._mode = "auto"
+    e._gpu_ok = False  # auto had failed over to CPU
+    e._gpu_retry_at = time.monotonic() + 9999
+    e._gpu_retry_wait = GPU_RETRY_S
+    e._pipelines = {("a", "cuda"): object(), ("a", "cpu"): object()}
+    assert e._pick_device(urgent=True) == "cpu"
+    e.set_mode("gpu")  # pinned GPU ignores failover state
+    assert e._pick_device(urgent=True) == "cuda"
+    assert e.info() == {"mode": "gpu", "active": "gpu", "gpu_available": True}
+    e.set_mode("cpu")  # pinned CPU never touches the GPU
+    assert e._pick_device(urgent=False) == "cpu"
+    assert not any(k[1] == "cuda" for k in e._pipelines)  # VRAM handed back
+    assert e.info() == {"mode": "cpu", "active": "cpu", "gpu_available": True}
+    e.set_mode("auto")  # back to auto: optimistic, re-measures on next chunk
     assert e._pick_device(urgent=True) == "cuda"
 
 

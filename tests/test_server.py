@@ -41,6 +41,22 @@ class FakeWorker:
         sf.write(self.path(cid), np.zeros(240, dtype=np.float32), 24000)
 
 
+class FakeEngine:
+    """Mirrors KokoroEngine's mode API without torch or a model."""
+
+    def __init__(self):
+        self.mode = "auto"
+        self.modes = []  # every set_mode call, for assertions
+
+    def set_mode(self, mode):
+        self.mode = mode
+        self.modes.append(mode)
+
+    def info(self):
+        return {"mode": self.mode, "active": "cpu" if self.mode == "cpu" else "gpu",
+                "gpu_available": True}
+
+
 class AsyncGenWorker(FakeWorker):
     """request() simulates a background generation completing shortly after."""
 
@@ -211,8 +227,40 @@ def test_position_survives_restart(tmp_path):
 
 def test_malformed_state_fields_fall_back(tmp_path):
     (tmp_path / "state.json").write_text(
-        '{"positions": null, "voice": "not_a_voice", "speed": "fast", "volume": true}'
+        '{"positions": null, "voice": "not_a_voice", "speed": "fast", "volume": true,'
+        ' "engine": "quantum"}'
     )
-    client, _ = make_client(tmp_path)
-    body = client.get("/api/doc").json()
+    engine = FakeEngine()
+    app = create_app(tmp_path, FakeWorker(tmp_path / "cache"), engine=engine)
+    body = TestClient(app).get("/api/doc").json()
     assert body["voice"] == "af_heart" and body["speed"] == 1.0 and body["volume"] == 1.0
+    assert engine.modes == ["auto"]  # bogus persisted mode falls back
+
+
+def test_engine_mode_applied_persisted_and_validated(tmp_path):
+    engine = FakeEngine()
+    app = create_app(tmp_path, FakeWorker(tmp_path / "cache"), engine=engine)
+    client = TestClient(app)
+    assert engine.modes == ["auto"]  # startup applies the persisted default
+    assert client.post("/api/state", json={"engine": "cpu"}).status_code == 200
+    assert engine.mode == "cpu"
+    assert json.loads((tmp_path / "state.json").read_text())["engine"] == "cpu"
+    assert client.post("/api/state", json={"engine": "abacus"}).status_code == 400
+    # fresh app over the same data_dir = server restart: mode reapplied
+    engine2 = FakeEngine()
+    create_app(tmp_path, FakeWorker(tmp_path / "cache"), engine=engine2)
+    assert engine2.modes == ["cpu"]
+
+
+def test_status_includes_engine_info(tmp_path):
+    engine = FakeEngine()
+    app = create_app(tmp_path, FakeWorker(tmp_path / "cache"), engine=engine)
+    client = TestClient(app)
+    body = client.get("/api/status").json()
+    assert body["engine"] == {"mode": "auto", "active": "gpu",
+                              "gpu_available": True, "speed": 0.0}
+    client.post("/api/state", json={"engine": "cpu"})
+    assert client.get("/api/status").json()["engine"]["active"] == "cpu"
+    # without an engine wired up (tests, embedding) the key is simply absent
+    plain, _ = make_client(tmp_path)
+    assert "engine" not in plain.get("/api/status").json()
