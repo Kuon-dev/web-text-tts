@@ -22,7 +22,13 @@ CACHE_CAP_BYTES = 2 * 1024 ** 3
 # own speed and fails over: a GPU chunk that measures below GPU_MIN_SPEED,
 # errors, or trips the mid-chunk stall watchdog sends later work to a CPU
 # pipeline and returns torch's cached VRAM to the game. The GPU is re-tried
-# on chunks nobody is waiting for, with exponential backoff.
+# on chunks nobody is waiting for, with exponential backoff — and only once
+# mem_get_info shows the game has released VRAM: the stall watchdog only
+# runs between Kokoro output segments, and most chunks yield exactly one,
+# so a probe landing on a paging GPU blocks the whole worker for the length
+# of the forward pass (measured 7+ minutes with a game holding 7.2/8GB),
+# freezing playback behind it. While VRAM stays scarce the probe is
+# re-checked every GPU_VRAM_POLL_S instead of running.
 #
 # That failover is the "auto" mode. The user can also pin the engine: "gpu"
 # always uses CUDA (no failover, no watchdog — the user chose it), "cpu"
@@ -32,6 +38,7 @@ GPU_MIN_SPEED = 1.5
 GPU_STALL_SECONDS = 45.0
 GPU_RETRY_S = 600.0
 GPU_RETRY_MAX_S = 3600.0
+GPU_VRAM_POLL_S = 30.0
 GPU_MIN_FREE_BYTES = 1_500_000_000  # start on CPU if a game already holds VRAM
 
 # Soon-needed window: chunks playback will reach in the next few minutes are
@@ -125,8 +132,26 @@ class KokoroEngine:
         if self._mode == "gpu" or self._gpu_ok:
             return "cuda"
         if not urgent and time.monotonic() >= self._gpu_retry_at:
-            return "cuda"  # probe on a chunk nobody is waiting for
+            if self._gpu_probe_allowed():
+                return "cuda"  # probe on a chunk nobody is waiting for
+            self._gpu_retry_at = time.monotonic() + GPU_VRAM_POLL_S
         return "cpu"
+
+    def _gpu_probe_allowed(self) -> bool:
+        import torch
+        try:
+            free, _total = torch.cuda.mem_get_info()
+        except Exception:
+            return False  # driver unhappy — a real probe would fare no better
+        if free >= GPU_MIN_FREE_BYTES:
+            self._vram_wait_logged = False
+            return True
+        if not getattr(self, "_vram_wait_logged", False):
+            # one line per contention episode, not one per 30s poll
+            self._vram_wait_logged = True
+            log.info("GPU has only %dMB free — waiting for VRAM before re-trying GPU",
+                     free // 2**20)
+        return False
 
     def _gpu_failed(self, reason: str):
         import torch

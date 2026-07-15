@@ -144,6 +144,7 @@ def test_engine_fails_over_to_cpu_when_gpu_slow():
     assert e._pick_device(urgent=True) == "cpu"   # urgent work never probes
     assert e._pick_device(urgent=False) == "cpu"  # retry window not yet open
     e._gpu_retry_at = 0.0  # pretend the retry backoff has elapsed
+    e._gpu_probe_allowed = lambda: True  # VRAM is free (gate tested separately)
     assert e._pick_device(urgent=False) == "cuda"  # non-urgent probe allowed
     e._gpu_measured(GPU_MIN_SPEED * 4)  # probe measured a free GPU
     assert e._pick_device(urgent=True) == "cuda"
@@ -168,6 +169,43 @@ def test_engine_mode_pins_device_and_releases_gpu():
     assert e.info() == {"mode": "cpu", "active": "cpu", "gpu_available": True}
     e.set_mode("auto")  # back to auto: optimistic, re-measures on next chunk
     assert e._pick_device(urgent=True) == "cuda"
+
+
+def test_gpu_probe_deferred_while_vram_held():
+    # A recovery probe on a VRAM-starved GPU blocks the worker for the whole
+    # forward pass (the stall watchdog only runs between output segments, and
+    # most chunks yield exactly one) — measured 7+ min with a game holding
+    # 7.2/8GB. The probe must wait for free VRAM, not land on a paging GPU.
+    from tts import GPU_RETRY_S, KokoroEngine
+    e = KokoroEngine.__new__(KokoroEngine)  # skip __init__ (no torch/model needed)
+    e.device = "cuda"
+    e._mode = "auto"
+    e._gpu_ok = False  # auto had failed over to CPU
+    e._gpu_retry_at = 0.0  # retry backoff has elapsed
+    e._gpu_retry_wait = GPU_RETRY_S
+    e._gpu_probe_allowed = lambda: False  # game still holds VRAM
+    assert e._pick_device(urgent=False) == "cpu"  # probe deferred
+    assert e._gpu_retry_at > time.monotonic()  # re-check scheduled, no per-chunk spam
+    e._gpu_retry_at = 0.0
+    e._gpu_probe_allowed = lambda: True  # game released VRAM
+    assert e._pick_device(urgent=False) == "cuda"  # probe proceeds
+
+
+def test_gpu_probe_allowed_checks_free_vram(monkeypatch):
+    import torch
+    from tts import GPU_MIN_FREE_BYTES, KokoroEngine
+    e = KokoroEngine.__new__(KokoroEngine)  # skip __init__ (no torch/model needed)
+    monkeypatch.setattr(torch.cuda, "mem_get_info",
+                        lambda: (GPU_MIN_FREE_BYTES - 1, 8 * 2**30))
+    assert e._gpu_probe_allowed() is False
+    monkeypatch.setattr(torch.cuda, "mem_get_info",
+                        lambda: (GPU_MIN_FREE_BYTES, 8 * 2**30))
+    assert e._gpu_probe_allowed() is True
+
+    def boom():
+        raise RuntimeError("CUDA driver error")
+    monkeypatch.setattr(torch.cuda, "mem_get_info", boom)
+    assert e._gpu_probe_allowed() is False  # driver trouble: skip probe, don't crash
 
 
 def test_poison_request_does_not_loop_or_block_later_requests(tmp_path):
