@@ -92,7 +92,15 @@ class KokoroEngine:
         key = (voice[0], device)
         if key not in self._pipelines:
             from kokoro import KPipeline
-            self._pipelines[key] = KPipeline(lang_code=voice[0], device=device)
+
+            from romaji import RomajiFallback
+            pipe = KPipeline(lang_code=voice[0], device=device)
+            # dictionary-miss words that look like romaji (character names
+            # in translated JP novels) get rule-based phonemes instead of
+            # espeak guessing with English spelling rules ("Touka"->"TOW-ka")
+            if hasattr(pipe.g2p, "fallback"):
+                pipe.g2p.fallback = RomajiFallback(pipe.g2p.fallback)
+            self._pipelines[key] = pipe
         return self._pipelines[key]
 
     def set_mode(self, mode: str) -> None:

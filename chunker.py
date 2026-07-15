@@ -98,5 +98,13 @@ def doc_id(text: str) -> str:
     return hashlib.sha1(normalized.encode("utf-8")).hexdigest()
 
 
+# Bumped whenever pronunciation rules change, so cached WAVs synthesized
+# under the old rules stop being served and regenerate (LRU evicts the
+# orphans). v2: romaji-aware G2P fallback for Japanese names.
+PRONUNCIATION_V = "2"
+
+
 def chunk_id(voice: str, text: str) -> str:
-    return hashlib.sha1((voice + "\x00" + text).encode("utf-8")).hexdigest()
+    return hashlib.sha1(
+        (PRONUNCIATION_V + "\x00" + voice + "\x00" + text).encode("utf-8")
+    ).hexdigest()

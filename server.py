@@ -293,15 +293,10 @@ def create_app(data_dir: Path, worker, audio_wait: float = 30.0, engine=None) ->
 
 
 def main():
-    import shutil
-
     import uvicorn
     from tts import KokoroEngine, TTSWorker
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    if not shutil.which("espeak-ng"):
-        log.warning("espeak-ng not found — rare words may mispronounce "
-                    "(fix: sudo apt-get install espeak-ng)")
     root = Path(__file__).parent
     # peek at the persisted mode so a "cpu"-pinned engine never even creates
     # a CUDA context (AppState re-validates and applies it in create_app)
