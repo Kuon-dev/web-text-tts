@@ -356,6 +356,31 @@ same threshold startup uses) or the probe is deferred and re-checked every
 the game exits happens within ~30 s instead of risking a multi-minute
 freeze per backoff expiry. One log line per contention episode.
 
+## Addendum: Romaji G2P for Japanese names (2026-07-16, v2.13)
+
+User report: translated Japanese light novels sound wrong — character
+names mispronounce badly. Root cause measured through the pipeline:
+names miss misaki's English dictionary and land in the espeak-ng
+fallback, which applies English spelling rules to romaji ("Shion" →
+"shun" one syllable, "Touka" → "TOW-ka" as in *cow*, "Sasuke" →
+"SASS-ook" via the silent-e rule). Two false beliefs corrected along the
+way: espeak-ng *is* available (misaki bundles it via `espeakng_loader`;
+the server's "espeak-ng not found" warning checked the system binary and
+is now removed), and OOV words were never skipped — just mangled.
+
+Fix: `romaji.py` — a strict kana-syllable parser doubles as detector and
+converter. Words that parse as romaji get rule-based Kokoro phonemes:
+every vowel kept (no schwa collapse), `ou/oo/uu/ei/…` merged to long
+vowels/diphthongs, final `e` pronounced ("kay"), penultimate-syllable
+stress (the English loanword pattern). Words that don't parse — nearly
+all English, which allows letters like l/v/c/x and consonant clusters —
+delegate to espeak unchanged. Wired as `RomajiFallback` wrapping
+`pipe.g2p.fallback` at KPipeline creation; dictionary words are
+untouched by construction (the fallback only sees dictionary misses).
+`chunk_id` is now salted with `PRONUNCIATION_V` so cached WAVs with the
+old pronunciations retire and regenerate on demand (`doc_id` unchanged —
+resume positions survive).
+
 ## Out of scope (deliberately)
 
 - MP3/M4B export (possible later "export" button; cache design already supports it).
