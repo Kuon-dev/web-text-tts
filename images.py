@@ -7,8 +7,10 @@ from pathlib import Path
 
 log = logging.getLogger("novel-tts")
 
-MAX_IMAGE_BYTES = 25 * 1024 * 1024
-MAX_STORE_BYTES = 500 * 1024 * 1024
+# Generous caps: the server is local-only, so an upload just costs a brief
+# in-memory spike — no reason to reject a big lossless PNG wallpaper.
+MAX_IMAGE_BYTES = 200 * 1024 * 1024
+MAX_STORE_BYTES = 2 * 1024 * 1024 * 1024
 FETCH_TIMEOUT = 30.0
 _UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) novel-tts/1.0"
 
@@ -85,7 +87,7 @@ class ImageStore:
 
     def put(self, data: bytes) -> dict:
         if len(data) > MAX_IMAGE_BYTES:
-            raise ImageError("image too large (25MB max)")
+            raise ImageError("image too large (200MB max)")
         info = sniff(data)
         if not info:
             raise ImageError("unsupported image format (png/jpeg/gif/webp only)")

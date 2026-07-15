@@ -267,7 +267,7 @@ def create_app(data_dir: Path, worker, audio_wait: float = 30.0, engine=None) ->
     async def post_wallpaper(request: Request):
         data = await request.body()
         if len(data) > MAX_IMAGE_BYTES:
-            raise HTTPException(400, "image too large (25MB max)")
+            raise HTTPException(400, "image too large (200MB max)")
         if not sniff(data):
             raise HTTPException(400, "unsupported image format (png/jpeg/gif/webp only)")
         wallpaper_path.write_bytes(data)

@@ -67,7 +67,7 @@ function WallpaperSection({
     e.target.value = ""
     if (!file) return
     if (!(await uploadWallpaper(file))) {
-      toast.error("Wallpaper upload failed — png, jpeg, gif or webp up to 25MB")
+      toast.error("Wallpaper upload failed — png, jpeg, gif or webp up to 200MB")
     }
   }
 

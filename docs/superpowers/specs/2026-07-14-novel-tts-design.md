@@ -275,9 +275,9 @@ Switching mode never invalidates cache — chunk IDs hash voice+text only.
 The reader can now show a user-chosen wallpaper behind the text.
 
 - **Storage:** one raw image file at `<data_dir>/wallpaper`, validated with
-  the same magic-byte sniffing as illustrations (png/jpeg/gif/webp, 25MB
-  cap). Server-side so it survives restarts and follows the server across
-  browsers/devices.
+  the same magic-byte sniffing as illustrations (png/jpeg/gif/webp, 200MB
+  cap — local-only server, so the limit is just a sanity check). Server-side
+  so it survives restarts and follows the server across browsers/devices.
 - **API:** `POST /api/wallpaper` (raw bytes) → `{"wallpaper": {id, w, h,
   format}}`; `GET /api/wallpaper/info` for presence on page load;
   `GET /api/wallpaper` serves the bytes immutable (the frontend appends
