@@ -34,6 +34,8 @@ export interface Status {
   doc_id: string
   ready: string[]
   failed: string[]
+  /** seconds of audio per ready chunk id */
+  durations?: Record<string, number>
   engine?: EngineInfo
 }
 

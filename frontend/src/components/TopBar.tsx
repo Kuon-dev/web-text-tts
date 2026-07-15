@@ -1,6 +1,6 @@
 import { BookAudio, ClipboardPaste } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { ReadingMenu } from "@/components/ReadingMenu"
+import { SettingsDialog } from "@/components/SettingsDialog"
 import type { ReadingPrefs } from "@/lib/reading"
 import type { ThemePrefs } from "@/lib/theme"
 import type { WallpaperInfo } from "@/lib/wallpaper"
@@ -24,7 +24,7 @@ export function TopBar({ prefs, update, theme, updateTheme, reset, onPasteClick,
         <BookAudio className="size-4 text-muted-foreground" aria-hidden />
         <span className="text-sm font-semibold tracking-tight">novel-tts</span>
         <div className="ml-auto flex items-center gap-2">
-          <ReadingMenu
+          <SettingsDialog
             prefs={prefs}
             update={update}
             theme={theme}

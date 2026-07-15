@@ -44,6 +44,7 @@ class PlayerEngine {
   private ready = new Set<string>()
   private failed = new Set<string>()
   private muted = false
+  private durations: Record<string, number> = {}
   private playToken = 0
   private saveTimer: ReturnType<typeof setTimeout> | undefined
   private voices: string[] = []
@@ -107,6 +108,7 @@ class PlayerEngine {
     this.idx = Math.min(this.doc.position, Math.max(this.doc.chunks.length - 1, 0))
     this.failed = new Set()
     this.ready = new Set()
+    this.durations = {}
     this.audio.playbackRate = this.doc.speed
     this.audio.volume = this.doc.volume ?? 1
     this.emit()
@@ -122,6 +124,7 @@ class PlayerEngine {
         await this.loadDoc()
       } else {
         this.ready = new Set(s.ready)
+        if (s.durations) this.durations = s.durations
         s.failed.forEach((cid) => this.failed.add(cid))
         this.emit()
       }
@@ -290,6 +293,27 @@ class PlayerEngine {
       this.emit()
       return false
     }
+  }
+
+  /**
+   * Elapsed / total chapter audio time in seconds, from real WAV durations.
+   * Chunks not yet generated are estimated at the average of the known ones;
+   * `estimated` flags that the total still contains guesses.
+   */
+  times(): { elapsed: number; total: number; estimated: boolean } {
+    const ds = this.doc.chunks.map((c) => this.durations[c.id])
+    const known = ds.filter((d): d is number => d !== undefined)
+    if (!known.length) return { elapsed: 0, total: 0, estimated: ds.length > 0 }
+    const avg = known.reduce((a, b) => a + b, 0) / known.length
+    let elapsed = 0
+    for (let i = 0; i < this.idx; i++) elapsed += ds[i] ?? avg
+    const cid = this.doc.chunks[this.idx]?.id
+    if (cid && this.audio.src.endsWith(audioUrl(cid)) && Number.isFinite(this.audio.currentTime)) {
+      elapsed += Math.min(this.audio.currentTime, ds[this.idx] ?? this.audio.currentTime)
+    }
+    let total = 0
+    for (const d of ds) total += d ?? avg
+    return { elapsed, total, estimated: known.length < ds.length }
   }
 
   private savePosition() {

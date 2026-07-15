@@ -2,6 +2,19 @@ import { useCallback, useState } from "react"
 
 export type FontKey = "georgia" | "literata" | "inter" | "system"
 
+export type WallpaperFit = "cover" | "contain" | "stretch" | "tile" | "center"
+
+export const WALLPAPER_FIT_LABELS: Record<WallpaperFit, string> = {
+  cover: "Fill screen",
+  contain: "Fit inside",
+  stretch: "Stretch",
+  tile: "Tile",
+  center: "Actual size",
+}
+
+export const WALLPAPER_POS_X = ["left", "center", "right"] as const
+export const WALLPAPER_POS_Y = ["top", "center", "bottom"] as const
+
 export interface ReadingPrefs {
   font: FontKey
   size: number
@@ -11,6 +24,9 @@ export interface ReadingPrefs {
   justify: boolean
   autoScroll: boolean
   wallpaperOpacity: number
+  wallpaperFit: WallpaperFit
+  /** CSS background-position, e.g. "center center" or "left top" */
+  wallpaperPos: string
 }
 
 export const FONT_STACKS: Record<FontKey, string> = {
@@ -36,6 +52,8 @@ export const DEFAULT_PREFS: ReadingPrefs = {
   justify: false,
   autoScroll: true,
   wallpaperOpacity: 0.3,
+  wallpaperFit: "cover",
+  wallpaperPos: "center center",
 }
 
 const STORAGE_KEY = "novel-tts:reading"
@@ -55,6 +73,8 @@ function loadPrefs(): ReadingPrefs {
     p.justify = typeof p.justify === "boolean" ? p.justify : DEFAULT_PREFS.justify
     p.autoScroll = typeof p.autoScroll === "boolean" ? p.autoScroll : DEFAULT_PREFS.autoScroll
     p.wallpaperOpacity = clamp(Number(p.wallpaperOpacity) || DEFAULT_PREFS.wallpaperOpacity, 0.05, 1)
+    if (!(p.wallpaperFit in WALLPAPER_FIT_LABELS)) p.wallpaperFit = DEFAULT_PREFS.wallpaperFit
+    if (!/^(left|center|right) (top|center|bottom)$/.test(p.wallpaperPos)) p.wallpaperPos = DEFAULT_PREFS.wallpaperPos
     return p
   } catch {
     return DEFAULT_PREFS

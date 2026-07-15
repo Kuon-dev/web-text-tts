@@ -295,6 +295,27 @@ The reader can now show a user-chosen wallpaper behind the text.
   `wallpaperOpacity` next to font/size/theme; "Reset to defaults" resets
   opacity but deliberately does not delete the uploaded image.
 
+## Addendum: Settings dialog, wallpaper layout, elapsed time (2026-07-15, v2.11)
+
+- **Settings dialog** replaces the Aa popover: a two-column modal (TopBar
+  "Settings" button) with sections Appearance (theme, accent), Reading
+  (font/size/spacing/width/justify/auto-scroll), Wallpaper, and Voice
+  (narrator picker + engine mode). `VoiceCombobox` and `EngineModeList`
+  are extracted into shared components so the player bar's quick controls
+  and the dialog render the same widgets from the same state.
+- **Wallpaper layout controls:** `wallpaperFit` (cover "Fill screen" /
+  contain "Fit inside" / stretch / tile / center "Actual size") and
+  `wallpaperPos` (3×3 alignment grid → CSS background-position, disabled
+  for stretch) join `wallpaperOpacity` in the localStorage reading prefs;
+  the fixed background layer maps them to background-size/-repeat/-position.
+- **Elapsed time:** `TTSWorker.status()` now includes `durations`
+  ({cid: seconds}, derived from cached WAV sizes: PCM_16 mono 24kHz,
+  44-byte header). The player sums real durations before the current
+  chunk plus `audio.currentTime` for elapsed, estimates not-yet-generated
+  chunks at the average of known ones (total prefixed "~" while any are
+  guessed), and the player bar shows "elapsed / total" above the sentence
+  counter, ticking once a second during playback.
+
 ## Out of scope (deliberately)
 
 - MP3/M4B export (possible later "export" button; cache design already supports it).

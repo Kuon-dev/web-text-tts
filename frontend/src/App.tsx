@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, type CSSProperties } from "react"
 import { LazyMotion, MotionConfig, domAnimation } from "motion/react"
 import { Toaster } from "sonner"
 import { PasteDialog } from "@/components/PasteDialog"
@@ -6,9 +6,17 @@ import { PlayerBar } from "@/components/PlayerBar"
 import { Reader } from "@/components/Reader"
 import { TopBar } from "@/components/TopBar"
 import { player } from "@/lib/player"
-import { useReadingPrefs } from "@/lib/reading"
+import { useReadingPrefs, type WallpaperFit } from "@/lib/reading"
 import { useTheme } from "@/lib/theme"
 import { useWallpaper, wallpaperUrl } from "@/lib/wallpaper"
+
+const WALLPAPER_FIT_STYLES: Record<WallpaperFit, CSSProperties> = {
+  cover: { backgroundSize: "cover", backgroundRepeat: "no-repeat" },
+  contain: { backgroundSize: "contain", backgroundRepeat: "no-repeat" },
+  stretch: { backgroundSize: "100% 100%", backgroundRepeat: "no-repeat" },
+  tile: { backgroundSize: "auto", backgroundRepeat: "repeat" },
+  center: { backgroundSize: "auto", backgroundRepeat: "no-repeat" },
+}
 
 export default function App() {
   const [pasteOpen, setPasteOpen] = useState(false)
@@ -57,8 +65,13 @@ export default function App() {
           {wallpaper && (
             <div
               aria-hidden
-              className="pointer-events-none fixed inset-0 -z-10 bg-cover bg-center transition-opacity duration-300"
-              style={{ backgroundImage: `url("${wallpaperUrl(wallpaper)}")`, opacity: prefs.wallpaperOpacity }}
+              className="pointer-events-none fixed inset-0 -z-10 transition-opacity duration-300"
+              style={{
+                backgroundImage: `url("${wallpaperUrl(wallpaper)}")`,
+                backgroundPosition: prefs.wallpaperPos,
+                opacity: prefs.wallpaperOpacity,
+                ...WALLPAPER_FIT_STYLES[prefs.wallpaperFit],
+              }}
             />
           )}
           <TopBar

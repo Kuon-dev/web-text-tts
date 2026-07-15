@@ -247,9 +247,19 @@ class TTSWorker:
     def status(self) -> dict:
         with self._cond:
             cids, failed = list(self._cids), set(self._failed)
+        ready, durations = [], {}
+        for c in cids:
+            try:
+                size = self.path(c).stat().st_size
+            except OSError:
+                continue
+            ready.append(c)
+            # PCM_16 mono @ 24kHz behind a 44-byte WAV header
+            durations[c] = max(0, size - 44) / 48000.0
         return {
-            "ready": [c for c in cids if self.path(c).exists()],
+            "ready": ready,
             "failed": [c for c in cids if c in failed],
+            "durations": durations,
         }
 
     # -- worker loop ---------------------------------------------------------

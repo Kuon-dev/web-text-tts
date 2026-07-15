@@ -205,3 +205,14 @@ def test_evicted_chunks_always_regenerate(tmp_path):
         worker.set_position(0)  # nudge the worker loop
     assert wait_until(lambda: worker.path(cid).exists())
     assert worker.status()["failed"] == []
+
+
+def test_status_reports_chunk_durations(tmp_path):
+    chunks = make_chunks(2)
+    worker = TTSWorker(tmp_path, FakeEngine())
+    worker.set_doc(chunks, "af_heart")
+    cids = [chunk_id("af_heart", c.text) for c in chunks]
+    assert wait_until(lambda: all(worker.path(c).exists() for c in cids))
+    durations = worker.status()["durations"]
+    # FakeEngine returns 1200 samples @ 24kHz = 0.05s per chunk
+    assert all(abs(durations[c] - 0.05) < 0.005 for c in cids)

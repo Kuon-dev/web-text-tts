@@ -1,38 +1,17 @@
-import { useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import type { MouseEvent } from "react"
-import {
-  ChevronsUpDown,
-  Cpu,
-  Gpu,
-  MicVocal,
-  Pause,
-  Play,
-  SkipBack,
-  SkipForward,
-  Sparkles,
-  Volume1,
-  Volume2,
-  VolumeX,
-} from "lucide-react"
+import { Pause, Play, SkipBack, SkipForward, Volume1, Volume2, VolumeX } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { m } from "motion/react"
 import type { Transition } from "motion/react"
-import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command"
 import { Label } from "@/components/ui/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Slider } from "@/components/ui/slider"
-import { voiceGroup, voiceLabel, voiceName, type EngineInfo, type EngineMode } from "@/lib/api"
+import { EngineModeList, activeEngineIcon } from "@/components/EngineModePicker"
+import { VoiceCombobox } from "@/components/VoiceCombobox"
+import type { EngineInfo } from "@/lib/api"
 import { player, usePlayer } from "@/lib/player"
-import { cn } from "@/lib/utils"
 
 const SPEED_PRESETS = [1, 1.25, 1.5, 2]
 
@@ -58,81 +37,9 @@ function IconStack<K extends string>({ active, icons }: { active: K; icons: Reco
   )
 }
 
-function VoiceCombobox({ voice, voices }: { voice: string; voices: string[] }) {
-  const [open, setOpen] = useState(false)
-
-  const groups = useMemo(() => {
-    const m = new Map<string, string[]>()
-    voices.forEach((v) => {
-      const g = voiceGroup(v)
-      m.set(g, [...(m.get(g) ?? []), v])
-    })
-    return [...m.entries()]
-  }, [voices])
-
-  const select = async (v: string) => {
-    setOpen(false)
-    if (v !== voice && !(await player.setVoice(v))) {
-      toast.error("Voice change failed — is the server running?")
-    }
-  }
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <Button
-          variant="outline"
-          size="sm"
-          role="combobox"
-          aria-expanded={open}
-          aria-label="Narrator voice"
-          title="Narrator voice"
-          className="w-48 justify-between font-normal max-sm:w-28"
-        >
-          <span className="flex min-w-0 items-center gap-2">
-            <MicVocal className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-            <span className="truncate">{voice ? voiceLabel(voice) : "Voice"}</span>
-          </span>
-          <ChevronsUpDown className="size-3.5 shrink-0 opacity-50" aria-hidden />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="start" className="w-56 p-0">
-        <Command>
-          <CommandInput placeholder="Search voices…" />
-          <CommandList>
-            <CommandEmpty>No voice found.</CommandEmpty>
-            {groups.map(([group, ids]) => (
-              <CommandGroup key={group} heading={group}>
-                {ids.map((v) => (
-                  <CommandItem key={v} value={`${voiceLabel(v)} ${v}`} data-checked={v === voice} onSelect={() => void select(v)}>
-                    {voiceName(v)}
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            ))}
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
-  )
-}
-
-const ENGINE_OPTIONS: { key: EngineMode; label: string; Icon: LucideIcon; desc: string }[] = [
-  { key: "auto", label: "Auto", Icon: Sparkles, desc: "GPU when it's free, CPU when a game needs it" },
-  { key: "gpu", label: "GPU", Icon: Gpu, desc: "Always the GPU — fastest, but competes with games" },
-  { key: "cpu", label: "CPU", Icon: Cpu, desc: "Never touches the GPU — smoothest for gaming" },
-]
-
 function EngineMenu({ engine }: { engine: EngineInfo | null }) {
-  const mode = engine?.mode ?? "auto"
   const active = engine?.active ?? "gpu"
-  const ActiveIcon = active === "gpu" ? Gpu : Cpu
-
-  const select = async (m: EngineMode) => {
-    if (m !== mode && !(await player.setEngineMode(m))) {
-      toast.error("Engine change failed — is the server running?")
-    }
-  }
+  const ActiveIcon = activeEngineIcon(engine)
 
   return (
     <Popover>
@@ -149,38 +56,37 @@ function EngineMenu({ engine }: { engine: EngineInfo | null }) {
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-72">
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <Label className="text-xs text-muted-foreground">Voice engine</Label>
-            <span className="text-xs tabular-nums text-muted-foreground">
-              {active.toUpperCase()}
-              {engine && engine.speed > 0 ? ` · ${engine.speed.toFixed(1)}× realtime` : ""}
-            </span>
-          </div>
-          <div className="space-y-1">
-            {ENGINE_OPTIONS.map(({ key, label, Icon, desc }) => (
-              <button
-                key={key}
-                type="button"
-                disabled={key !== "cpu" && engine !== null && !engine.gpu_available}
-                onClick={() => void select(key)}
-                aria-pressed={mode === key}
-                className={cn(
-                  "flex w-full cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50",
-                  mode === key && "bg-secondary",
-                )}
-              >
-                <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
-                <span className="min-w-0">
-                  <span className="block text-sm font-medium">{label}</span>
-                  <span className="block text-xs text-muted-foreground">{desc}</span>
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
+        <EngineModeList engine={engine} />
       </PopoverContent>
     </Popover>
+  )
+}
+
+function fmtTime(s: number): string {
+  const t = Math.max(0, Math.round(s))
+  const h = Math.floor(t / 3600)
+  const min = Math.floor((t % 3600) / 60)
+  const sec = t % 60
+  return h ? `${h}:${String(min).padStart(2, "0")}:${String(sec).padStart(2, "0")}` : `${min}:${String(sec).padStart(2, "0")}`
+}
+
+/** Elapsed / total chapter time from real chunk durations, ticking while playing. */
+function TimeDisplay({ playing, hasChunks }: { playing: boolean; hasChunks: boolean }) {
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    if (!playing) return
+    const t = setInterval(() => setTick((n) => n + 1), 1000)
+    return () => clearInterval(t)
+  }, [playing])
+
+  if (!hasChunks) return null
+  const { elapsed, total, estimated } = player.times()
+  if (total <= 0) return null
+  return (
+    <span className="text-xs tabular-nums text-muted-foreground">
+      {fmtTime(elapsed)} / {estimated ? "~" : ""}
+      {fmtTime(total)}
+    </span>
   )
 }
 
@@ -224,7 +130,7 @@ export function PlayerBar() {
       </div>
       <div className="mx-auto grid max-w-5xl grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 py-2.5">
         <div className="flex items-center gap-2">
-          <VoiceCombobox voice={voice} voices={voices} />
+          <VoiceCombobox voice={voice} voices={voices} className="max-sm:w-28" />
           <EngineMenu engine={engine} />
         </div>
 
@@ -273,7 +179,7 @@ export function PlayerBar() {
             <IconStack active={volState} icons={{ muted: VolumeX, low: Volume1, high: Volume2 }} />
           </Button>
           <Slider
-            className="w-24 max-sm:hidden"
+            className="w-24 max-lg:hidden"
             value={[Math.round(effectiveVolume * 100)]}
             min={0}
             max={100}
@@ -322,8 +228,9 @@ export function PlayerBar() {
               </div>
             </PopoverContent>
           </Popover>
-          <span className="w-16 text-right text-xs tabular-nums text-muted-foreground max-sm:hidden">
-            {n ? `${idx + 1} / ${n}` : "— / —"}
+          <span className="flex flex-col items-end leading-tight max-sm:hidden">
+            <TimeDisplay playing={playing} hasChunks={n > 0} />
+            <span className="text-[10px] tabular-nums text-muted-foreground/70">{n ? `${idx + 1} / ${n}` : "— / —"}</span>
           </span>
         </div>
       </div>
