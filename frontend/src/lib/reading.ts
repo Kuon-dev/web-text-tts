@@ -12,6 +12,13 @@ export type FontKey =
   | "nunito"
   | "atkinson"
   | "system"
+  | "jetbrains"
+  | "courier"
+  | "caveat"
+  | "dancing"
+  | "patrick"
+  | "comic"
+  | "averia"
 
 export type WallpaperFit = "cover" | "contain" | "stretch" | "tile" | "center"
 
@@ -52,6 +59,13 @@ export const FONT_STACKS: Record<FontKey, string> = {
   nunito: '"Nunito Variable", system-ui, sans-serif',
   atkinson: '"Atkinson Hyperlegible", system-ui, sans-serif',
   system: 'system-ui, -apple-system, "Segoe UI", sans-serif',
+  jetbrains: '"JetBrains Mono Variable", Consolas, monospace',
+  courier: '"Courier Prime", "Courier New", monospace',
+  caveat: '"Caveat Variable", cursive',
+  dancing: '"Dancing Script Variable", cursive',
+  patrick: '"Patrick Hand", cursive',
+  comic: '"Comic Neue", "Comic Sans MS", cursive',
+  averia: '"Averia Serif Libre", Georgia, serif',
 }
 
 export const FONT_LABELS: Record<FontKey, string> = {
@@ -66,6 +80,13 @@ export const FONT_LABELS: Record<FontKey, string> = {
   nunito: "Nunito",
   atkinson: "Atkinson Hyperlegible",
   system: "System",
+  jetbrains: "JetBrains Mono",
+  courier: "Courier Prime",
+  caveat: "Caveat",
+  dancing: "Dancing Script",
+  patrick: "Patrick Hand",
+  comic: "Comic Neue",
+  averia: "Averia Serif",
 }
 
 /** Short style hints shown next to each font in the picker. */
@@ -81,11 +102,21 @@ export const FONT_HINTS: Record<FontKey, string> = {
   nunito: "rounded",
   atkinson: "high legibility",
   system: "device default",
+  jetbrains: "coding",
+  courier: "typewriter",
+  caveat: "handwritten",
+  dancing: "flowing cursive",
+  patrick: "neat handprint",
+  comic: "comic",
+  averia: "storybook",
 }
 
 export const FONT_GROUPS: { label: string; fonts: FontKey[] }[] = [
   { label: "Serif", fonts: ["georgia", "literata", "lora", "merriweather", "ebgaramond", "crimson", "bitter"] },
   { label: "Sans serif", fonts: ["inter", "nunito", "atkinson", "system"] },
+  { label: "Monospace", fonts: ["jetbrains", "courier"] },
+  { label: "Handwriting", fonts: ["caveat", "dancing", "patrick"] },
+  { label: "Stylized", fonts: ["comic", "averia"] },
 ]
 
 export const DEFAULT_PREFS: ReadingPrefs = {

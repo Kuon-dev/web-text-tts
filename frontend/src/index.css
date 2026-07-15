@@ -24,6 +24,23 @@
 @import "@fontsource/atkinson-hyperlegible/700.css";
 @import "@fontsource/atkinson-hyperlegible/400-italic.css";
 @import "@fontsource/atkinson-hyperlegible/700-italic.css";
+@import "@fontsource-variable/jetbrains-mono";
+@import "@fontsource-variable/jetbrains-mono/wght-italic.css";
+@import "@fontsource/courier-prime";
+@import "@fontsource/courier-prime/700.css";
+@import "@fontsource/courier-prime/400-italic.css";
+@import "@fontsource/courier-prime/700-italic.css";
+@import "@fontsource-variable/caveat";
+@import "@fontsource-variable/dancing-script";
+@import "@fontsource/patrick-hand";
+@import "@fontsource/comic-neue";
+@import "@fontsource/comic-neue/700.css";
+@import "@fontsource/comic-neue/400-italic.css";
+@import "@fontsource/comic-neue/700-italic.css";
+@import "@fontsource/averia-serif-libre";
+@import "@fontsource/averia-serif-libre/700.css";
+@import "@fontsource/averia-serif-libre/400-italic.css";
+@import "@fontsource/averia-serif-libre/700-italic.css";
 
 @custom-variant dark (&:is(.dark *));
 
