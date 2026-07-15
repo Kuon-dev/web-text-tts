@@ -333,6 +333,11 @@ The reader can now show a user-chosen wallpaper behind the text.
   italic-heavy, and synthesized obliques are noticeably worse.
 - Cost: static assets grow ~3 MB (80 woff2 subset files); browsers only
   download the subsets a page actually uses (unicode-range).
+- Second wave (same day): three more picker groups — Monospace
+  (JetBrains Mono "coding", Courier Prime "typewriter"), Handwriting
+  (Caveat, Dancing Script, Patrick Hand) and Stylized (Comic Neue,
+  Averia Serif Libre "storybook") — 18 reading fonts total. True
+  italics where the face ships them; script faces have none by nature.
 
 ## Out of scope (deliberately)
 
