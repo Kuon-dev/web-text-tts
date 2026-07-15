@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import type { ClipboardEvent } from "react"
+import { ClipboardPaste, Eraser } from "lucide-react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import {
@@ -14,11 +15,15 @@ import { Textarea } from "@/components/ui/textarea"
 import { importImageUrl, uploadImage, type ImageInfo } from "@/lib/api"
 import { htmlChapter, imgPlaceholder } from "@/lib/paste"
 import { player } from "@/lib/player"
+import { cn } from "@/lib/utils"
 
 interface Props {
   open: boolean
   onOpenChange: (open: boolean) => void
 }
+
+/** Rough audiobook pace used for the listen-time estimate (words / minute). */
+const WPM = 165
 
 async function importOne(src: string): Promise<ImageInfo | null> {
   try {
@@ -35,10 +40,17 @@ async function importOne(src: string): Promise<ImageInfo | null> {
 export function PasteDialog({ open, onOpenChange }: Props) {
   const [text, setText] = useState("")
   const [importing, setImporting] = useState(0)
+  const taRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     if (open) setText("")
   }, [open])
+
+  const { words, imgs } = useMemo(() => {
+    const tokens = text.match(/\S+/g) ?? []
+    const imgCount = (text.match(/\[img:[^\]]+\]/g) ?? []).length
+    return { words: tokens.filter((w) => !w.startsWith("[img:")).length, imgs: imgCount }
+  }, [text])
 
   const insertAt = (start: number, end: number, inserted: string) => {
     setText((t) => t.slice(0, start) + inserted + t.slice(end))
@@ -72,7 +84,7 @@ export function PasteDialog({ open, onOpenChange }: Props) {
   }
 
   /** Image data on the clipboard (copy image / screenshot). */
-  const importBlobs = async (blobs: File[], ta: HTMLTextAreaElement) => {
+  const importBlobs = async (blobs: Blob[], ta: HTMLTextAreaElement) => {
     const start = ta.selectionStart
     const end = ta.selectionEnd
     setImporting((n) => n + 1)
@@ -108,6 +120,37 @@ export function PasteDialog({ open, onOpenChange }: Props) {
     // plain text falls through to the default paste
   }
 
+  /** One-click import via the async clipboard API (same handling as Ctrl+V). */
+  const pasteFromClipboard = async () => {
+    const ta = taRef.current
+    if (!ta) return
+    ta.focus()
+    try {
+      const items = await navigator.clipboard.read()
+      let html: string | null = null
+      let plain = ""
+      const blobs: Blob[] = []
+      for (const it of items) {
+        if (!html && it.types.includes("text/html")) html = await (await it.getType("text/html")).text()
+        const imgType = it.types.find((t) => t.startsWith("image/"))
+        if (imgType) blobs.push(await it.getType(imgType))
+        if (it.types.includes("text/plain")) plain += await (await it.getType("text/plain")).text()
+      }
+      if (blobs.length) return void importBlobs(blobs, ta)
+      if (html && /<img[\s>]/i.test(html)) return void importHtml(html, ta)
+      if (plain) return insertAt(ta.selectionStart, ta.selectionEnd, plain)
+      toast.info("Clipboard is empty")
+    } catch {
+      try {
+        const t = await navigator.clipboard.readText()
+        if (t) insertAt(ta.selectionStart, ta.selectionEnd, t)
+        else toast.info("Clipboard is empty")
+      } catch {
+        toast.error("Clipboard unavailable — press Ctrl+V in the text area instead")
+      }
+    }
+  }
+
   const submit = async () => {
     const t = text.trim()
     onOpenChange(false)
@@ -117,31 +160,69 @@ export function PasteDialog({ open, onOpenChange }: Props) {
     }
   }
 
+  const listenMin = Math.max(1, Math.round(words / WPM))
+  const stats =
+    words > 0
+      ? `${words.toLocaleString()} words · ~${listenMin} min${imgs ? ` · ${imgs} image${imgs > 1 ? "s" : ""}` : ""}`
+      : imgs
+        ? `${imgs} image${imgs > 1 ? "s" : ""}`
+        : ""
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Paste chapter text</DialogTitle>
+          <DialogTitle>Paste chapter</DialogTitle>
           <DialogDescription>
-            Replaces the current chapter; illustrations in the copied selection are kept. Each chapter's position is
-            remembered — re-pasting an earlier one resumes where you left off.
+            Replaces the current chapter — illustrations in the copied selection are kept. Every chapter's position is
+            remembered, so re-pasting an earlier one resumes where you left off.
           </DialogDescription>
         </DialogHeader>
-        <Textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          onPaste={onPaste}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-              e.preventDefault()
-              void submit()
-            }
-          }}
-          placeholder="Paste the chapter here…"
-          className="h-[50vh] resize-none font-sans text-[15px] leading-relaxed"
-          autoFocus
-        />
+        <div className="relative">
+          <Textarea
+            ref={taRef}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onPaste={onPaste}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault()
+                void submit()
+              }
+            }}
+            aria-label="Chapter text"
+            className={cn("h-[50vh] resize-none font-sans text-[15px] leading-relaxed", text && "pr-10")}
+            autoFocus
+          />
+          {!text && importing === 0 && (
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-2">
+              <Button variant="outline" className="pointer-events-auto" onClick={() => void pasteFromClipboard()}>
+                <ClipboardPaste data-icon="inline-start" aria-hidden />
+                Paste from clipboard
+              </Button>
+              <span className="text-xs text-muted-foreground">or press Ctrl+V here</span>
+            </div>
+          )}
+          {text && (
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="absolute top-2 right-2 text-muted-foreground"
+              onClick={() => {
+                setText("")
+                taRef.current?.focus()
+              }}
+              title="Clear text"
+              aria-label="Clear text"
+            >
+              <Eraser aria-hidden />
+            </Button>
+          )}
+        </div>
         <DialogFooter>
+          <span className="mr-auto self-center font-mono text-[11px] tabular-nums text-muted-foreground max-sm:hidden">
+            {stats || "ctrl+↵ loads the chapter"}
+          </span>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             Cancel
           </Button>

@@ -263,6 +263,15 @@ export function SettingsDialog({ prefs, update, theme, updateTheme, reset, wallp
                   ))}
                 </div>
               </div>
+              <PrefRow label="UI scale" value={`${Math.round(prefs.uiScale * 100)}%`}>
+                <Slider
+                  value={[Math.round(prefs.uiScale * 100)]}
+                  min={85}
+                  max={150}
+                  step={5}
+                  onValueChange={([v]) => update({ uiScale: v / 100 })}
+                />
+              </PrefRow>
               <SwitchRow id="pref-clock" label="Show clock" checked={prefs.showClock} onChange={(v) => update({ showClock: v })} />
             </Section>
 

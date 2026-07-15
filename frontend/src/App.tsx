@@ -28,6 +28,12 @@ export default function App() {
     player.start()
   }, [])
 
+  // UI scale: rem-based chrome (bars, dialogs, controls) scales with the root
+  // font-size; reading text is px-based and stays under its own Size pref.
+  useEffect(() => {
+    document.documentElement.style.fontSize = prefs.uiScale === 1 ? "" : `${prefs.uiScale * 100}%`
+  }, [prefs.uiScale])
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null
@@ -88,7 +94,7 @@ export default function App() {
           <Reader prefs={prefs} onPasteClick={openPaste} />
           <PlayerBar />
           <PasteDialog open={pasteOpen} onOpenChange={setPasteOpen} />
-          <Toaster theme={dark ? "dark" : "light"} position="bottom-right" offset={{ bottom: 88 }} />
+          <Toaster theme={dark ? "dark" : "light"} position="bottom-right" offset={{ bottom: Math.round(88 * prefs.uiScale) }} />
         </div>
       </LazyMotion>
     </MotionConfig>
