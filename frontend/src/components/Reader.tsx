@@ -18,7 +18,7 @@ type Block =
   | { kind: "image"; para: number; img: ImageRef }
 
 export function Reader({ prefs, onPasteClick }: Props) {
-  const { docId, chunks, images, idx, ready, failed } = usePlayer()
+  const { docId, chunks, images, idx, playing, ready, failed } = usePlayer()
 
   // Track the previously focused sentence so the one the voice just left
   // can fade out slower than the new one fades in (trailing highlight).
@@ -49,36 +49,54 @@ export function Reader({ prefs, onPasteClick }: Props) {
 
   if (!chunks.length && !images.length) {
     return (
-      <main className="flex flex-1 flex-col items-center justify-center gap-5 px-6 pb-28 text-center animate-in fade-in zoom-in-95 duration-500 motion-reduce:animate-none">
-        <div className="flex size-14 items-center justify-center rounded-lg border bg-card text-muted-foreground">
-          <BookOpenText className="size-6" aria-hidden />
-        </div>
-        <div className="space-y-1.5">
-          <h2 className="text-base font-semibold">No chapter loaded</h2>
-          <p className="max-w-sm text-sm text-muted-foreground">
-            Paste a chapter and it will be read aloud, with the current sentence highlighted as it goes.
-          </p>
-        </div>
-        <Button onClick={onPasteClick}>
-          <ClipboardPaste data-icon="inline-start" aria-hidden />
-          Paste chapter
-        </Button>
+      <main className="flex flex-1 px-2 pb-28 sm:px-3">
+        <m.div
+          initial={{ opacity: 0, scale: 0.97, y: 12 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          transition={{ type: "spring", stiffness: 200, damping: 24, delay: 0.08 }}
+          className="m-auto flex w-full max-w-md flex-col items-center gap-5 rounded-lg border bg-card/85 px-8 py-14 text-center shadow-sm backdrop-blur-sm"
+        >
+          <div className="flex size-14 items-center justify-center rounded-lg border bg-background/60 text-muted-foreground">
+            <BookOpenText className="size-6" aria-hidden />
+          </div>
+          <div className="space-y-1.5">
+            <h2 className="text-base font-semibold">No chapter loaded</h2>
+            <p className="max-w-sm text-sm text-muted-foreground">
+              Paste a chapter and it will be read aloud, with the current sentence highlighted as it goes.
+            </p>
+          </div>
+          <Button onClick={onPasteClick}>
+            <ClipboardPaste data-icon="inline-start" aria-hidden />
+            Paste chapter
+          </Button>
+        </m.div>
       </main>
     )
   }
 
   return (
-    <main
-      key={docId}
-      className="mx-auto w-full flex-1 px-5 pt-10 pb-[50vh]"
-      style={{
-        fontFamily: FONT_STACKS[prefs.font],
-        fontSize: `${prefs.size}px`,
-        lineHeight: prefs.lineHeight,
-        maxWidth: `${prefs.width}rem`,
-        textAlign: prefs.justify ? "justify" : undefined,
-      }}
-    >
+    <main key={docId} className="w-full flex-1 px-2 pt-2 pb-[50vh] sm:px-3 sm:pt-3">
+      {/* The reader is the session's "focused window": the accent border and
+          glow are on exactly while the voice is reading. */}
+      <m.div
+        initial={{ opacity: 0, scale: 0.985, y: 10 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ type: "spring", stiffness: 180, damping: 24, delay: 0.06 }}
+        className={cn(
+          "mx-auto rounded-lg border bg-card/85 backdrop-blur-sm transition-[border-color,box-shadow] duration-700",
+          playing ? "border-(--focus-border) shadow-[0_0_44px_-10px_var(--focus-glow)]" : "shadow-sm",
+        )}
+        style={{ maxWidth: `min(100%, ${prefs.width + 6}rem)` }}
+      >
+        <div
+          className="px-5 py-8 sm:px-10 sm:py-10"
+          style={{
+            fontFamily: FONT_STACKS[prefs.font],
+            fontSize: `${prefs.size}px`,
+            lineHeight: prefs.lineHeight,
+            textAlign: prefs.justify ? "justify" : undefined,
+          }}
+        >
       {blocks.map((p, pi) =>
         p.kind === "image" ? (
           <m.figure
@@ -130,6 +148,8 @@ export function Reader({ prefs, onPasteClick }: Props) {
         </m.p>
         ),
       )}
+        </div>
+      </m.div>
     </main>
   )
 }

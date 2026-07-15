@@ -47,6 +47,7 @@
 @theme inline {
     --font-heading: var(--font-sans);
     --font-sans: 'Geist Variable', system-ui, sans-serif;
+    --font-mono: 'JetBrains Mono Variable', ui-monospace, Consolas, monospace;
     --color-sidebar-ring: var(--sidebar-ring);
     --color-sidebar-border: var(--sidebar-border);
     --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -87,9 +88,11 @@
     --radius-4xl: calc(var(--radius) * 2.6);
 }
 
-/* zinc palette (shadcn), low radius */
+/* zinc palette (shadcn), low radius.
+   Light background sits a step below the white cards so the floating
+   "window" tiles read as layered on a desktop (riced-WM look). */
 :root {
-    --background: oklch(1 0 0);
+    --background: oklch(0.967 0.001 286.375);
     --foreground: oklch(0.141 0.005 285.823);
     --card: oklch(1 0 0);
     --card-foreground: oklch(0.141 0.005 285.823);
@@ -173,9 +176,24 @@
     --progress-fill: color-mix(in oklab, var(--accent-base) 90%, transparent);
     --hl-bg: color-mix(in oklab, var(--accent-base) 18%, transparent);
     --hl-ring: color-mix(in oklab, var(--accent-base) 45%, transparent);
+    /* Focused-window treatment: the reader tile borrows the tiling-WM
+       convention that exactly one window carries the accent border —
+       here "focused" means the voice is reading. */
+    --focus-border: color-mix(in oklab, var(--accent-base) 55%, var(--border));
+    --focus-glow: color-mix(in oklab, var(--accent-base) 22%, transparent);
 }
 .dark {
     --hl-bg: color-mix(in oklab, var(--accent-base) 25%, transparent);
+    --focus-glow: color-mix(in oklab, var(--accent-base) 32%, transparent);
+}
+
+/* Thin, quiet scrollbar + accent-tinted text selection round out the rice. */
+html {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--muted-foreground) 45%, transparent) transparent;
+}
+::selection {
+    background: var(--hl-bg);
 }
 
 /* Theme/accent switches cross-fade via the View Transitions API (src/lib/theme.ts). */

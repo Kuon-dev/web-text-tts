@@ -52,7 +52,12 @@ function EngineMenu({ engine }: { engine: EngineInfo | null }) {
           className="font-normal"
         >
           <ActiveIcon className="size-3.5 text-muted-foreground" aria-hidden />
-          <span className="text-xs max-sm:hidden">{active.toUpperCase()}</span>
+          <span className="font-mono text-xs max-sm:hidden">{active.toUpperCase()}</span>
+          {engine != null && engine.speed > 0 && (
+            <span className="font-mono text-[10px] tabular-nums text-muted-foreground max-md:hidden">
+              {engine.speed.toFixed(1)}×
+            </span>
+          )}
         </Button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-72">
@@ -83,7 +88,7 @@ function TimeDisplay({ playing, hasChunks }: { playing: boolean; hasChunks: bool
   const { elapsed, total, estimated } = player.times()
   if (total <= 0) return null
   return (
-    <span className="text-xs tabular-nums text-muted-foreground">
+    <span className="font-mono text-xs tabular-nums text-muted-foreground">
       {fmtTime(elapsed)} / {estimated ? "~" : ""}
       {fmtTime(total)}
     </span>
@@ -105,7 +110,13 @@ export function PlayerBar() {
   }
 
   return (
-    <footer className="fixed inset-x-0 bottom-0 z-20 border-t bg-background/90 backdrop-blur animate-in fade-in slide-in-from-bottom-4 duration-500 motion-reduce:animate-none">
+    <footer className="fixed inset-x-0 bottom-0 z-20 px-2 pb-2 sm:px-3 sm:pb-3">
+      <m.div
+        initial={{ y: 18, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ type: "spring", stiffness: 300, damping: 28, delay: 0.04 }}
+        className="overflow-hidden rounded-lg border bg-card/85 backdrop-blur"
+      >
       <div
         className="group/progress relative h-1 w-full cursor-pointer bg-secondary transition-[height] hover:h-1.5"
         onClick={scrub}
@@ -128,7 +139,7 @@ export function PlayerBar() {
           />
         </m.div>
       </div>
-      <div className="mx-auto grid max-w-5xl grid-cols-[1fr_auto_1fr] items-center gap-3 px-4 py-2.5">
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-3 py-2">
         <div className="flex items-center gap-2">
           <VoiceCombobox voice={voice} voices={voices} className="max-sm:w-28" />
           <EngineMenu engine={engine} />
@@ -190,7 +201,7 @@ export function PlayerBar() {
           />
           <Popover>
             <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className="w-16 tabular-nums" title="Playback speed">
+              <Button variant="outline" size="sm" className="w-16 font-mono text-xs tabular-nums" title="Playback speed">
                 {speed.toFixed(2)}×
               </Button>
             </PopoverTrigger>
@@ -230,10 +241,11 @@ export function PlayerBar() {
           </Popover>
           <span className="flex flex-col items-end leading-tight max-sm:hidden">
             <TimeDisplay playing={playing} hasChunks={n > 0} />
-            <span className="text-[10px] tabular-nums text-muted-foreground/70">{n ? `${idx + 1} / ${n}` : "— / —"}</span>
+            <span className="font-mono text-[10px] tabular-nums text-muted-foreground/70">{n ? `${idx + 1} / ${n}` : "— / —"}</span>
           </span>
         </div>
       </div>
+      </m.div>
     </footer>
   )
 }

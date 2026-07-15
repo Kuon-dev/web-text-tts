@@ -17,14 +17,15 @@ function useNow(): Date {
   return now
 }
 
+/** Status-bar clock module (waybar-style); hover for the full date. */
 export function Clock() {
   const now = useNow()
   return (
-    <div
-      className="fixed top-14 right-4 z-10 rounded-md border bg-background/80 px-2.5 py-1 text-xs tabular-nums text-muted-foreground backdrop-blur select-none"
+    <span
+      className="px-2 font-mono text-xs tabular-nums text-muted-foreground select-none"
       title={now.toLocaleDateString([], { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
     >
       {now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-    </div>
+    </span>
   )
 }

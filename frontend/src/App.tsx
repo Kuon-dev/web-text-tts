@@ -1,7 +1,6 @@
 import { useEffect, useState, type CSSProperties } from "react"
 import { LazyMotion, MotionConfig, domAnimation } from "motion/react"
 import { Toaster } from "sonner"
-import { Clock } from "@/components/Clock"
 import { PasteDialog } from "@/components/PasteDialog"
 import { PlayerBar } from "@/components/PlayerBar"
 import { Reader } from "@/components/Reader"
@@ -86,7 +85,6 @@ export default function App() {
             uploadWallpaper={uploadWallpaper}
             removeWallpaper={removeWallpaper}
           />
-          {prefs.showClock && <Clock />}
           <Reader prefs={prefs} onPasteClick={openPaste} />
           <PlayerBar />
           <PasteDialog open={pasteOpen} onOpenChange={setPasteOpen} />

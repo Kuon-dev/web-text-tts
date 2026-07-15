@@ -48,7 +48,7 @@ function applyTheme(dark: boolean, accent: AccentKey) {
   const root = document.documentElement
   root.classList.toggle("dark", dark)
   root.dataset.accent = accent
-  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#131316" : "#fafafa")
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#131316" : "#f4f4f5")
 }
 
 function isDark(prefs: ThemePrefs, systemDark: boolean): boolean {

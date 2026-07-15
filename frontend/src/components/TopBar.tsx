@@ -1,6 +1,9 @@
-import { BookAudio, ClipboardPaste } from "lucide-react"
+import { ClipboardPaste } from "lucide-react"
+import { m } from "motion/react"
 import { Button } from "@/components/ui/button"
+import { Clock } from "@/components/Clock"
 import { SettingsDialog } from "@/components/SettingsDialog"
+import { usePlayer } from "@/lib/player"
 import type { ReadingPrefs } from "@/lib/reading"
 import type { ThemePrefs } from "@/lib/theme"
 import type { WallpaperInfo } from "@/lib/wallpaper"
@@ -18,12 +21,31 @@ interface Props {
 }
 
 export function TopBar({ prefs, update, theme, updateTheme, reset, onPasteClick, wallpaper, uploadWallpaper, removeWallpaper }: Props) {
+  const { playing } = usePlayer()
   return (
-    <header className="sticky top-0 z-20 border-b bg-background/80 backdrop-blur animate-in fade-in slide-in-from-top-2 duration-500 motion-reduce:animate-none">
-      <div className="mx-auto flex h-12 max-w-5xl items-center gap-2.5 px-4">
-        <BookAudio className="size-4 text-muted-foreground" aria-hidden />
-        <span className="text-sm font-semibold tracking-tight">novel-tts</span>
-        <div className="ml-auto flex items-center gap-2">
+    <header className="sticky top-0 z-20 px-2 pt-2 sm:px-3 sm:pt-3">
+      <m.div
+        initial={{ y: -16, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ type: "spring", stiffness: 300, damping: 28 }}
+        className="flex h-11 items-center gap-2.5 rounded-lg border bg-card/80 px-3 backdrop-blur"
+      >
+        {/* Workspace-tag dot: breathes while the voice is reading. */}
+        <m.span
+          aria-hidden
+          className="size-2 rounded-[2px] bg-(--accent-base)"
+          initial={false}
+          animate={playing ? { opacity: [1, 0.4, 1], scale: [1, 0.8, 1] } : { opacity: 1, scale: 1 }}
+          transition={playing ? { duration: 2, repeat: Infinity, ease: "easeInOut" } : { duration: 0.3 }}
+        />
+        <span className="font-mono text-[13px] font-medium tracking-tight select-none">novel-tts</span>
+        <div className="ml-auto flex items-center gap-1.5">
+          {prefs.showClock && (
+            <>
+              <Clock />
+              <div className="h-4 w-px bg-border" aria-hidden />
+            </>
+          )}
           <SettingsDialog
             prefs={prefs}
             update={update}
@@ -39,7 +61,7 @@ export function TopBar({ prefs, update, theme, updateTheme, reset, onPasteClick,
             Paste chapter
           </Button>
         </div>
-      </div>
+      </m.div>
     </header>
   )
 }
