@@ -316,6 +316,24 @@ The reader can now show a user-chosen wallpaper behind the text.
   guessed), and the player bar shows "elapsed / total" above the sentence
   counter, ticking once a second during playback.
 
+## Addendum: Reading font expansion (2026-07-15, v2.12)
+
+- Reading fonts grow from 4 to 11. New faces, all bundled locally via
+  fontsource packages (no CDN): Lora (calligraphic), Merriweather
+  (sturdy), EB Garamond (old print), Crimson Pro (elegant), Bitter
+  (slab), Nunito (rounded sans), Atkinson Hyperlegible (accessibility
+  sans). Existing Georgia / Literata / Inter / System remain.
+- The Settings-dialog font picker is grouped Serif / Sans serif
+  (`FONT_GROUPS`), each option rendered in its own face with a short
+  muted style hint (`FONT_HINTS`, e.g. "old print", "high legibility").
+  The trigger shows just the selected font's name in its own face.
+- All serif/sans reading fonts (including the pre-existing Literata and
+  Inter) now load true italic faces via the fontsource `wght-italic`
+  imports instead of browser-synthesized obliques — fiction is
+  italic-heavy, and synthesized obliques are noticeably worse.
+- Cost: static assets grow ~3 MB (80 woff2 subset files); browsers only
+  download the subsets a page actually uses (unicode-range).
+
 ## Out of scope (deliberately)
 
 - MP3/M4B export (possible later "export" button; cache design already supports it).
