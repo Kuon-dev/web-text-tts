@@ -41,6 +41,7 @@ export interface ReadingPrefs {
   paraSpacing: number
   justify: boolean
   autoScroll: boolean
+  showClock: boolean
   wallpaperOpacity: number
   wallpaperFit: WallpaperFit
   /** CSS background-position, e.g. "center center" or "left top" */
@@ -127,6 +128,7 @@ export const DEFAULT_PREFS: ReadingPrefs = {
   paraSpacing: 1.1,
   justify: false,
   autoScroll: true,
+  showClock: true,
   wallpaperOpacity: 0.3,
   wallpaperFit: "cover",
   wallpaperPos: "center center",
@@ -148,6 +150,7 @@ function loadPrefs(): ReadingPrefs {
     p.paraSpacing = clamp(Number(p.paraSpacing) || DEFAULT_PREFS.paraSpacing, 0.4, 2.4)
     p.justify = typeof p.justify === "boolean" ? p.justify : DEFAULT_PREFS.justify
     p.autoScroll = typeof p.autoScroll === "boolean" ? p.autoScroll : DEFAULT_PREFS.autoScroll
+    p.showClock = typeof p.showClock === "boolean" ? p.showClock : DEFAULT_PREFS.showClock
     p.wallpaperOpacity = clamp(Number(p.wallpaperOpacity) || DEFAULT_PREFS.wallpaperOpacity, 0.05, 1)
     if (!(p.wallpaperFit in WALLPAPER_FIT_LABELS)) p.wallpaperFit = DEFAULT_PREFS.wallpaperFit
     if (!/^(left|center|right) (top|center|bottom)$/.test(p.wallpaperPos)) p.wallpaperPos = DEFAULT_PREFS.wallpaperPos

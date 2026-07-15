@@ -263,6 +263,7 @@ export function SettingsDialog({ prefs, update, theme, updateTheme, reset, wallp
                   ))}
                 </div>
               </div>
+              <SwitchRow id="pref-clock" label="Show clock" checked={prefs.showClock} onChange={(v) => update({ showClock: v })} />
             </Section>
 
             <Section title="Reading">
