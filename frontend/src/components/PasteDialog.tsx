@@ -16,6 +16,7 @@ import { importImageUrl, uploadImage, type ImageInfo } from "@/lib/api"
 import { htmlChapter, imgPlaceholder } from "@/lib/paste"
 import { player } from "@/lib/player"
 import { cn } from "@/lib/utils"
+import { stripWatermarks } from "@/lib/watermark"
 
 interface Props {
   open: boolean
@@ -56,13 +57,27 @@ export function PasteDialog({ open, onOpenChange }: Props) {
     setText((t) => t.slice(0, start) + inserted + t.slice(end))
   }
 
+  /** insertAt, minus anti-theft watermark sentences — with an undo toast when anything was dropped. */
+  const insertCleaned = (ta: HTMLTextAreaElement, start: number, end: number, raw: string) => {
+    const { text: cleaned, removed } = stripWatermarks(raw)
+    if (!removed.length) return insertAt(start, end, raw)
+    const base = ta.value
+    setText(base.slice(0, start) + cleaned + base.slice(end))
+    const first = removed[0].length > 90 ? `${removed[0].slice(0, 90)}…` : removed[0]
+    toast.info(`Filtered ${removed.length} watermark${removed.length > 1 ? "s" : ""}`, {
+      description: removed.length > 1 ? `${first} (+${removed.length - 1} more)` : first,
+      duration: 10000,
+      action: { label: "Undo", onClick: () => setText(base.slice(0, start) + raw + base.slice(end)) },
+    })
+  }
+
   /** Chapter copied from a web page: keep its illustrations as [img:…] lines. */
   const importHtml = async (html: string, ta: HTMLTextAreaElement) => {
     const start = ta.selectionStart
     const end = ta.selectionEnd
     const { text: parsed, urls } = htmlChapter(html)
     if (!urls.length) {
-      insertAt(start, end, parsed)
+      insertCleaned(ta, start, end, parsed)
       return
     }
     setImporting((n) => n + 1)
@@ -74,7 +89,7 @@ export function PasteDialog({ open, onOpenChange }: Props) {
         final = final.replace(imgPlaceholder(i), r ? `[img:${r.id}]` : "")
       })
       final = final.replace(/\n{3,}/g, "\n\n").trim()
-      insertAt(start, end, final)
+      insertCleaned(ta, start, end, final)
       const failed = results.filter((r) => !r).length
       if (failed) toast.error(`${failed} of ${urls.length} image${urls.length > 1 ? "s" : ""} could not be imported`, { id: tid })
       else toast.success(`Imported ${urls.length} image${urls.length > 1 ? "s" : ""}`, { id: tid })
@@ -116,8 +131,16 @@ export function PasteDialog({ open, onOpenChange }: Props) {
     if (html && /<img[\s>]/i.test(html)) {
       e.preventDefault()
       void importHtml(html, e.currentTarget)
+      return
     }
-    // plain text falls through to the default paste
+    // Plain text falls through to the default paste unless it carries
+    // watermarks, so clean pastes keep the native undo stack.
+    const plain = cd.getData("text/plain")
+    if (plain && stripWatermarks(plain).removed.length) {
+      e.preventDefault()
+      const ta = e.currentTarget
+      insertCleaned(ta, ta.selectionStart, ta.selectionEnd, plain)
+    }
   }
 
   /** One-click import via the async clipboard API (same handling as Ctrl+V). */
@@ -138,12 +161,12 @@ export function PasteDialog({ open, onOpenChange }: Props) {
       }
       if (blobs.length) return void importBlobs(blobs, ta)
       if (html && /<img[\s>]/i.test(html)) return void importHtml(html, ta)
-      if (plain) return insertAt(ta.selectionStart, ta.selectionEnd, plain)
+      if (plain) return insertCleaned(ta, ta.selectionStart, ta.selectionEnd, plain)
       toast.info("Clipboard is empty")
     } catch {
       try {
         const t = await navigator.clipboard.readText()
-        if (t) insertAt(ta.selectionStart, ta.selectionEnd, t)
+        if (t) insertCleaned(ta, ta.selectionStart, ta.selectionEnd, t)
         else toast.info("Clipboard is empty")
       } catch {
         toast.error("Clipboard unavailable — press Ctrl+V in the text area instead")
@@ -174,8 +197,9 @@ export function PasteDialog({ open, onOpenChange }: Props) {
         <DialogHeader>
           <DialogTitle>Paste chapter</DialogTitle>
           <DialogDescription>
-            Replaces the current chapter — illustrations in the copied selection are kept. Every chapter's position is
-            remembered, so re-pasting an earlier one resumes where you left off.
+            Replaces the current chapter — illustrations in the copied selection are kept, and anti-theft watermark
+            lines are filtered out. Every chapter's position is remembered, so re-pasting an earlier one resumes where
+            you left off.
           </DialogDescription>
         </DialogHeader>
         <div className="relative">
