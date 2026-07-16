@@ -84,6 +84,7 @@ export default function App() {
             prefs={prefs}
             update={update}
             theme={theme}
+            dark={dark}
             updateTheme={updateTheme}
             reset={resetAll}
             onPasteClick={openPaste}

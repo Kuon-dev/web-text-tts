@@ -17,6 +17,8 @@
         root.classList.toggle("dark", dark)
         var accents = ["indigo", "emerald", "rose", "amber", "sky"]
         root.dataset.accent = accents.indexOf(t.accent) >= 0 ? t.accent : "indigo"
+        var schemes = ["zinc", "catppuccin", "dracula", "everforest", "gruvbox", "nord", "rosepine", "solarized", "tokyonight"]
+        root.dataset.scheme = schemes.indexOf(t.scheme) >= 0 ? t.scheme : "zinc"
       })()
     </script>
   </head>

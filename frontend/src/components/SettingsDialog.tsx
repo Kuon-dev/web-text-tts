@@ -37,7 +37,16 @@ import {
   type ReadingPrefs,
   type WallpaperFit,
 } from "@/lib/reading"
-import { ACCENT_LABELS, ACCENT_SWATCHES, type AccentKey, type ThemeMode, type ThemePrefs } from "@/lib/theme"
+import {
+  ACCENT_LABELS,
+  ACCENT_SWATCHES,
+  SCHEME_LABELS,
+  SCHEME_PREVIEWS,
+  type AccentKey,
+  type SchemeKey,
+  type ThemeMode,
+  type ThemePrefs,
+} from "@/lib/theme"
 import { usePlayer } from "@/lib/player"
 import { cn } from "@/lib/utils"
 import type { WallpaperInfo } from "@/lib/wallpaper"
@@ -46,6 +55,7 @@ interface Props {
   prefs: ReadingPrefs
   update: (patch: Partial<ReadingPrefs>) => void
   theme: ThemePrefs
+  dark: boolean
   updateTheme: (patch: Partial<ThemePrefs>) => void
   reset: () => void
   wallpaper: WallpaperInfo | null
@@ -58,6 +68,17 @@ const THEME_MODES: { key: ThemeMode; label: string; Icon: typeof Sun }[] = [
   { key: "dark", label: "Dark", Icon: Moon },
   { key: "system", label: "System", Icon: Monitor },
 ]
+
+/** Mini terminal-palette strip — the five accent hues a scheme ships with. */
+function PaletteDots({ colors }: { colors: string[] }) {
+  return (
+    <span aria-hidden className="flex items-center gap-1">
+      {colors.map((c, i) => (
+        <span key={i} className="size-2 rounded-full" style={{ background: c }} />
+      ))}
+    </span>
+  )
+}
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -207,8 +228,9 @@ function WallpaperSection({
   )
 }
 
-export function SettingsDialog({ prefs, update, theme, updateTheme, reset, wallpaper, uploadWallpaper, removeWallpaper }: Props) {
+export function SettingsDialog({ prefs, update, theme, dark, updateTheme, reset, wallpaper, uploadWallpaper, removeWallpaper }: Props) {
   const { voice, voices, engine } = usePlayer()
+  const previewMode = dark ? "dark" : "light"
 
   return (
     <Dialog>
@@ -242,6 +264,29 @@ export function SettingsDialog({ prefs, update, theme, updateTheme, reset, wallp
                     </Button>
                   ))}
                 </div>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs text-muted-foreground">Palette</Label>
+                <Select value={theme.scheme} onValueChange={(v) => updateTheme({ scheme: v as SchemeKey })}>
+                  <SelectTrigger size="sm" className="w-full">
+                    <SelectValue>
+                      <span className="flex w-full items-center justify-between gap-3">
+                        {SCHEME_LABELS[theme.scheme]}
+                        <PaletteDots colors={SCHEME_PREVIEWS[theme.scheme][previewMode]} />
+                      </span>
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(SCHEME_LABELS) as SchemeKey[]).map((k) => (
+                      <SelectItem key={k} value={k}>
+                        <span className="flex w-full items-center justify-between gap-3">
+                          <span className="text-sm">{SCHEME_LABELS[k]}</span>
+                          <PaletteDots colors={SCHEME_PREVIEWS[k][previewMode]} />
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label className="text-xs text-muted-foreground">Accent</Label>

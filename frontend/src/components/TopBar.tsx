@@ -12,6 +12,7 @@ interface Props {
   prefs: ReadingPrefs
   update: (patch: Partial<ReadingPrefs>) => void
   theme: ThemePrefs
+  dark: boolean
   updateTheme: (patch: Partial<ThemePrefs>) => void
   reset: () => void
   onPasteClick: () => void
@@ -20,7 +21,7 @@ interface Props {
   removeWallpaper: () => Promise<boolean>
 }
 
-export function TopBar({ prefs, update, theme, updateTheme, reset, onPasteClick, wallpaper, uploadWallpaper, removeWallpaper }: Props) {
+export function TopBar({ prefs, update, theme, dark, updateTheme, reset, onPasteClick, wallpaper, uploadWallpaper, removeWallpaper }: Props) {
   const { playing } = usePlayer()
   return (
     <header className="sticky top-0 z-20 px-2 pt-2 sm:px-3 sm:pt-3">
@@ -50,6 +51,7 @@ export function TopBar({ prefs, update, theme, updateTheme, reset, onPasteClick,
             prefs={prefs}
             update={update}
             theme={theme}
+            dark={dark}
             updateTheme={updateTheme}
             reset={reset}
             wallpaper={wallpaper}

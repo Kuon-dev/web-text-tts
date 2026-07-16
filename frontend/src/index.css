@@ -160,17 +160,448 @@
     --sidebar-ring: oklch(0.552 0.016 285.938);
 }
 
-/* Accent color — selected via data-accent on <html>.
-   Values mirror ACCENT_SWATCHES in src/lib/theme.ts and the inline
-   script in index.html; keep the three in sync. */
-:root,
-[data-accent="indigo"] {
-    --accent-base: oklch(0.585 0.233 277.117);
+/* ── Color schemes ────────────────────────────────────────────────────
+   The r/unixporn canon, selected via data-scheme on <html>. Each palette
+   uses the scheme's official published values and keeps the base layering
+   rule: desktop --background sits one step below the window --card.
+   Light/dark follows the .dark class exactly like the zinc default, and
+   each scheme carries its own accent ramp (--ac-violet … --ac-blue) so
+   highlights, progress and the focused-window glow stay palette-native.
+   Keep the scheme list in sync with SCHEME_LABELS/SCHEME_PREVIEWS in
+   src/lib/theme.ts and the inline script in index.html. */
+
+/* Catppuccin — Latte / Mocha */
+:root[data-scheme="catppuccin"] {
+    --background: #e6e9ef;
+    --foreground: #4c4f69;
+    --card: #eff1f5;
+    --card-foreground: #4c4f69;
+    --popover: #eff1f5;
+    --popover-foreground: #4c4f69;
+    --primary: #4c4f69;
+    --primary-foreground: #eff1f5;
+    --secondary: #dce0e8;
+    --secondary-foreground: #4c4f69;
+    --muted: #dce0e8;
+    --muted-foreground: #6c6f85;
+    --accent: #dce0e8;
+    --accent-foreground: #4c4f69;
+    --destructive: #d20f39;
+    --border: #ccd0da;
+    --input: #ccd0da;
+    --ring: #9ca0b0;
+    --ac-violet: #8839ef;
+    --ac-green: #40a02b;
+    --ac-rose: #d20f39;
+    --ac-amber: #fe640b;
+    --ac-blue: #1e66f5;
 }
-[data-accent="emerald"] { --accent-base: oklch(0.696 0.17 162.48); }
-[data-accent="rose"]    { --accent-base: oklch(0.645 0.246 16.439); }
-[data-accent="amber"]   { --accent-base: oklch(0.769 0.188 70.08); }
-[data-accent="sky"]     { --accent-base: oklch(0.685 0.169 237.323); }
+:root[data-scheme="catppuccin"].dark {
+    --background: #181825;
+    --foreground: #cdd6f4;
+    --card: #1e1e2e;
+    --card-foreground: #cdd6f4;
+    --popover: #1e1e2e;
+    --popover-foreground: #cdd6f4;
+    --primary: #cdd6f4;
+    --primary-foreground: #1e1e2e;
+    --secondary: #313244;
+    --secondary-foreground: #cdd6f4;
+    --muted: #313244;
+    --muted-foreground: #7f849c;
+    --accent: #313244;
+    --accent-foreground: #cdd6f4;
+    --destructive: #f38ba8;
+    --border: #313244;
+    --input: #45475a;
+    --ring: #6c7086;
+    --ac-violet: #cba6f7;
+    --ac-green: #a6e3a1;
+    --ac-rose: #f38ba8;
+    --ac-amber: #fab387;
+    --ac-blue: #89b4fa;
+}
+
+/* Dracula — Alucard / Dracula */
+:root[data-scheme="dracula"] {
+    --background: #f4eed9;
+    --foreground: #1f1f1f;
+    --card: #fffbeb;
+    --card-foreground: #1f1f1f;
+    --popover: #fffbeb;
+    --popover-foreground: #1f1f1f;
+    --primary: #1f1f1f;
+    --primary-foreground: #fffbeb;
+    --secondary: #f4eed9;
+    --secondary-foreground: #1f1f1f;
+    --muted: #f4eed9;
+    --muted-foreground: #6c664b;
+    --accent: #f4eed9;
+    --accent-foreground: #1f1f1f;
+    --destructive: #cb3a2a;
+    --border: #e6dfc4;
+    --input: #e6dfc4;
+    --ring: #a9a289;
+    --ac-violet: #644ac9;
+    --ac-green: #14710a;
+    --ac-rose: #a3144d;
+    --ac-amber: #a34d14;
+    --ac-blue: #036a96;
+}
+:root[data-scheme="dracula"].dark {
+    --background: #21222c;
+    --foreground: #f8f8f2;
+    --card: #282a36;
+    --card-foreground: #f8f8f2;
+    --popover: #282a36;
+    --popover-foreground: #f8f8f2;
+    --primary: #f8f8f2;
+    --primary-foreground: #282a36;
+    --secondary: #343746;
+    --secondary-foreground: #f8f8f2;
+    --muted: #343746;
+    --muted-foreground: #6272a4;
+    --accent: #343746;
+    --accent-foreground: #f8f8f2;
+    --destructive: #ff5555;
+    --border: #343746;
+    --input: #44475a;
+    --ring: #6272a4;
+    --ac-violet: #bd93f9;
+    --ac-green: #50fa7b;
+    --ac-rose: #ff79c6;
+    --ac-amber: #ffb86c;
+    --ac-blue: #8be9fd;
+}
+
+/* Everforest — light medium / dark medium */
+:root[data-scheme="everforest"] {
+    --background: #efebd4;
+    --foreground: #5c6a72;
+    --card: #fdf6e3;
+    --card-foreground: #5c6a72;
+    --popover: #fdf6e3;
+    --popover-foreground: #5c6a72;
+    --primary: #5c6a72;
+    --primary-foreground: #fdf6e3;
+    --secondary: #f4f0d9;
+    --secondary-foreground: #5c6a72;
+    --muted: #f4f0d9;
+    --muted-foreground: #829181;
+    --accent: #f4f0d9;
+    --accent-foreground: #5c6a72;
+    --destructive: #f85552;
+    --border: #e6e2cc;
+    --input: #e6e2cc;
+    --ring: #939f91;
+    --ac-violet: #df69ba;
+    --ac-green: #8da101;
+    --ac-rose: #f85552;
+    --ac-amber: #dfa000;
+    --ac-blue: #3a94c5;
+}
+:root[data-scheme="everforest"].dark {
+    --background: #232a2e;
+    --foreground: #d3c6aa;
+    --card: #2d353b;
+    --card-foreground: #d3c6aa;
+    --popover: #2d353b;
+    --popover-foreground: #d3c6aa;
+    --primary: #d3c6aa;
+    --primary-foreground: #2d353b;
+    --secondary: #3d484d;
+    --secondary-foreground: #d3c6aa;
+    --muted: #3d484d;
+    --muted-foreground: #859289;
+    --accent: #3d484d;
+    --accent-foreground: #d3c6aa;
+    --destructive: #e67e80;
+    --border: #3d484d;
+    --input: #475258;
+    --ring: #7a8478;
+    --ac-violet: #d699b6;
+    --ac-green: #a7c080;
+    --ac-rose: #e67e80;
+    --ac-amber: #dbbc7f;
+    --ac-blue: #7fbbb3;
+}
+
+/* Gruvbox — light / dark (hard-contrast desktop under bg0 cards) */
+:root[data-scheme="gruvbox"] {
+    --background: #ebdbb2;
+    --foreground: #3c3836;
+    --card: #fbf1c7;
+    --card-foreground: #3c3836;
+    --popover: #fbf1c7;
+    --popover-foreground: #3c3836;
+    --primary: #3c3836;
+    --primary-foreground: #fbf1c7;
+    --secondary: #ebdbb2;
+    --secondary-foreground: #3c3836;
+    --muted: #ebdbb2;
+    --muted-foreground: #7c6f64;
+    --accent: #ebdbb2;
+    --accent-foreground: #3c3836;
+    --destructive: #9d0006;
+    --border: #d5c4a1;
+    --input: #d5c4a1;
+    --ring: #bdae93;
+    --ac-violet: #8f3f71;
+    --ac-green: #79740e;
+    --ac-rose: #9d0006;
+    --ac-amber: #b57614;
+    --ac-blue: #076678;
+}
+:root[data-scheme="gruvbox"].dark {
+    --background: #1d2021;
+    --foreground: #ebdbb2;
+    --card: #282828;
+    --card-foreground: #ebdbb2;
+    --popover: #282828;
+    --popover-foreground: #ebdbb2;
+    --primary: #ebdbb2;
+    --primary-foreground: #282828;
+    --secondary: #3c3836;
+    --secondary-foreground: #ebdbb2;
+    --muted: #3c3836;
+    --muted-foreground: #a89984;
+    --accent: #3c3836;
+    --accent-foreground: #ebdbb2;
+    --destructive: #fb4934;
+    --border: #3c3836;
+    --input: #504945;
+    --ring: #7c6f64;
+    --ac-violet: #d3869b;
+    --ac-green: #b8bb26;
+    --ac-rose: #fb4934;
+    --ac-amber: #fabd2f;
+    --ac-blue: #83a598;
+}
+
+/* Nord — Snow Storm / Polar Night, frost focus ring in both modes */
+:root[data-scheme="nord"] {
+    --background: #e5e9f0;
+    --foreground: #2e3440;
+    --card: #eceff4;
+    --card-foreground: #2e3440;
+    --popover: #eceff4;
+    --popover-foreground: #2e3440;
+    --primary: #3b4252;
+    --primary-foreground: #eceff4;
+    --secondary: #d8dee9;
+    --secondary-foreground: #2e3440;
+    --muted: #d8dee9;
+    --muted-foreground: #4c566a;
+    --accent: #d8dee9;
+    --accent-foreground: #2e3440;
+    --destructive: #bf616a;
+    --border: #d8dee9;
+    --input: #d8dee9;
+    --ring: #81a1c1;
+    --ac-violet: #b48ead;
+    --ac-green: #a3be8c;
+    --ac-rose: #bf616a;
+    --ac-amber: #d08770;
+    --ac-blue: #5e81ac;
+}
+:root[data-scheme="nord"].dark {
+    --background: #2e3440;
+    --foreground: #eceff4;
+    --card: #3b4252;
+    --card-foreground: #eceff4;
+    --popover: #3b4252;
+    --popover-foreground: #eceff4;
+    --primary: #eceff4;
+    --primary-foreground: #2e3440;
+    --secondary: #434c5e;
+    --secondary-foreground: #eceff4;
+    --muted: #434c5e;
+    --muted-foreground: #9aa4b5;
+    --accent: #434c5e;
+    --accent-foreground: #eceff4;
+    --destructive: #bf616a;
+    --border: #434c5e;
+    --input: #4c566a;
+    --ring: #81a1c1;
+    --ac-violet: #b48ead;
+    --ac-green: #a3be8c;
+    --ac-rose: #bf616a;
+    --ac-amber: #ebcb8b;
+    --ac-blue: #88c0d0;
+}
+
+/* Rosé Pine — Dawn / main */
+:root[data-scheme="rosepine"] {
+    --background: #f2e9e1;
+    --foreground: #575279;
+    --card: #fffaf3;
+    --card-foreground: #575279;
+    --popover: #fffaf3;
+    --popover-foreground: #575279;
+    --primary: #575279;
+    --primary-foreground: #faf4ed;
+    --secondary: #f2e9e1;
+    --secondary-foreground: #575279;
+    --muted: #f2e9e1;
+    --muted-foreground: #797593;
+    --accent: #f2e9e1;
+    --accent-foreground: #575279;
+    --destructive: #b4637a;
+    --border: #dfdad9;
+    --input: #dfdad9;
+    --ring: #9893a5;
+    --ac-violet: #907aa9;
+    --ac-green: #286983;
+    --ac-rose: #b4637a;
+    --ac-amber: #ea9d34;
+    --ac-blue: #56949f;
+}
+:root[data-scheme="rosepine"].dark {
+    --background: #191724;
+    --foreground: #e0def4;
+    --card: #1f1d2e;
+    --card-foreground: #e0def4;
+    --popover: #26233a;
+    --popover-foreground: #e0def4;
+    --primary: #e0def4;
+    --primary-foreground: #191724;
+    --secondary: #26233a;
+    --secondary-foreground: #e0def4;
+    --muted: #26233a;
+    --muted-foreground: #908caa;
+    --accent: #26233a;
+    --accent-foreground: #e0def4;
+    --destructive: #eb6f92;
+    --border: #403d52;
+    --input: #403d52;
+    --ring: #6e6a86;
+    --ac-violet: #c4a7e7;
+    --ac-green: #31748f;
+    --ac-rose: #eb6f92;
+    --ac-amber: #f6c177;
+    --ac-blue: #9ccfd8;
+}
+
+/* Solarized — light / dark (accents shared across modes) */
+:root[data-scheme="solarized"] {
+    --background: #eee8d5;
+    --foreground: #073642;
+    --card: #fdf6e3;
+    --card-foreground: #073642;
+    --popover: #fdf6e3;
+    --popover-foreground: #073642;
+    --primary: #073642;
+    --primary-foreground: #fdf6e3;
+    --secondary: #eee8d5;
+    --secondary-foreground: #073642;
+    --muted: #eee8d5;
+    --muted-foreground: #657b83;
+    --accent: #eee8d5;
+    --accent-foreground: #073642;
+    --destructive: #dc322f;
+    --border: #ddd6c1;
+    --input: #ddd6c1;
+    --ring: #93a1a1;
+    --ac-violet: #6c71c4;
+    --ac-green: #859900;
+    --ac-rose: #d33682;
+    --ac-amber: #b58900;
+    --ac-blue: #268bd2;
+}
+:root[data-scheme="solarized"].dark {
+    --background: #002b36;
+    --foreground: #eee8d5;
+    --card: #073642;
+    --card-foreground: #eee8d5;
+    --popover: #073642;
+    --popover-foreground: #eee8d5;
+    --primary: #eee8d5;
+    --primary-foreground: #073642;
+    --secondary: #0e4250;
+    --secondary-foreground: #eee8d5;
+    --muted: #0e4250;
+    --muted-foreground: #839496;
+    --accent: #0e4250;
+    --accent-foreground: #eee8d5;
+    --destructive: #dc322f;
+    --border: #0e4250;
+    --input: #144c5a;
+    --ring: #586e75;
+    --ac-violet: #6c71c4;
+    --ac-green: #859900;
+    --ac-rose: #d33682;
+    --ac-amber: #b58900;
+    --ac-blue: #268bd2;
+}
+
+/* Tokyo Night — Day / Night */
+:root[data-scheme="tokyonight"] {
+    --background: #e1e2e7;
+    --foreground: #3760bf;
+    --card: #e9e9ec;
+    --card-foreground: #3760bf;
+    --popover: #e9e9ec;
+    --popover-foreground: #3760bf;
+    --primary: #3760bf;
+    --primary-foreground: #e9e9ec;
+    --secondary: #d8dbe9;
+    --secondary-foreground: #3760bf;
+    --muted: #d8dbe9;
+    --muted-foreground: #6172b0;
+    --accent: #d8dbe9;
+    --accent-foreground: #3760bf;
+    --destructive: #f52a65;
+    --border: #c4c8da;
+    --input: #c4c8da;
+    --ring: #8990b3;
+    --ac-violet: #7847bd;
+    --ac-green: #587539;
+    --ac-rose: #f52a65;
+    --ac-amber: #b15c00;
+    --ac-blue: #2e7de9;
+}
+:root[data-scheme="tokyonight"].dark {
+    --background: #16161e;
+    --foreground: #c0caf5;
+    --card: #1a1b26;
+    --card-foreground: #c0caf5;
+    --popover: #1a1b26;
+    --popover-foreground: #c0caf5;
+    --primary: #c0caf5;
+    --primary-foreground: #16161e;
+    --secondary: #292e42;
+    --secondary-foreground: #c0caf5;
+    --muted: #292e42;
+    --muted-foreground: #737aa2;
+    --accent: #292e42;
+    --accent-foreground: #c0caf5;
+    --destructive: #f7768e;
+    --border: #292e42;
+    --input: #414868;
+    --ring: #565f89;
+    --ac-violet: #bb9af7;
+    --ac-green: #9ece6a;
+    --ac-rose: #f7768e;
+    --ac-amber: #e0af68;
+    --ac-blue: #7aa2f7;
+}
+
+/* Accent color — selected via data-accent on <html>. Each slot resolves
+   through the active scheme's --ac-* ramp; the zinc defaults below mirror
+   ACCENT_SWATCHES' old values. Keep names in sync with src/lib/theme.ts
+   and the inline script in index.html. */
+:root {
+    --ac-violet: oklch(0.585 0.233 277.117);
+    --ac-green: oklch(0.696 0.17 162.48);
+    --ac-rose: oklch(0.645 0.246 16.439);
+    --ac-amber: oklch(0.769 0.188 70.08);
+    --ac-blue: oklch(0.685 0.169 237.323);
+    --accent-base: var(--ac-violet);
+}
+[data-accent="emerald"] { --accent-base: var(--ac-green); }
+[data-accent="rose"]    { --accent-base: var(--ac-rose); }
+[data-accent="amber"]   { --accent-base: var(--ac-amber); }
+[data-accent="sky"]     { --accent-base: var(--ac-blue); }
 
 :root {
     --progress-fill: color-mix(in oklab, var(--accent-base) 90%, transparent);
