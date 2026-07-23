@@ -129,6 +129,15 @@ class PlayerEngine {
     this.emit()
   }
 
+  /** Re-fetch the doc after a rechunk, preserving playback position. Covers both
+   *  rechunks driven through setVoice/setEngine/setInstruct and ones that happen
+   *  server-side outside those calls (e.g. deleting the active cloned voice). */
+  async reconcileDoc() {
+    const keep = this.idx
+    await this.loadDoc()
+    this.jump(keep)
+  }
+
   private async pollStatus() {
     try {
       const s = await api<Status>("/api/status")
@@ -257,7 +266,8 @@ class PlayerEngine {
     this.emit()
   }
 
-  /** Returns true on success; false means the change failed and was rolled back. */
+  /** Resolves true on success; throws (with the server's `detail` message when the
+   *  rejection was a 400, via api()) on failure, after rolling back the optimistic update. */
   async setDeviceMode(mode: DeviceMode): Promise<boolean> {
     const previous = this.engine
     if (this.engine) {
@@ -268,28 +278,31 @@ class PlayerEngine {
     try {
       await api("/api/state", { device_mode: mode })
       return true
-    } catch {
+    } catch (err) {
       this.engine = previous
       this.emit()
-      return false
+      throw err
     }
   }
 
-  /** Returns true on success; false means the switch failed (rejected atomically, nothing changed). */
+  /** Resolves true on success; throws (with the server's `detail` message when the
+   *  rejection was a 400, via api()) on failure — the request is atomic, so nothing
+   *  local needs rolling back. */
   async setEngine(id: string): Promise<boolean> {
     try {
       const r = await api<{ rechunked: boolean }>("/api/state", { engine: id })
-      if (r.rechunked) {
-        const keep = this.idx
-        await this.loadDoc()
-        this.jump(keep)
+      if (this.engine) {
+        // optimistic; the 2s status poll corrects label/gpu_available/mode/speed shortly
+        this.engine = { ...this.engine, engine: id, cold: true }
       }
+      this.emit()
+      if (r.rechunked) await this.reconcileDoc()
       await this.refreshVoices()  // the new engine has its own voice set
       this.emit()
       return true
-    } catch {
+    } catch (err) {
       this.emit()
-      return false
+      throw err
     }
   }
 
@@ -298,11 +311,7 @@ class PlayerEngine {
     try {
       const r = await api<{ rechunked: boolean }>("/api/state", { instruct: text })
       this.doc.instruct = text
-      if (r.rechunked) {
-        const keep = this.idx
-        await this.loadDoc()
-        this.jump(keep)
-      }
+      if (r.rechunked) await this.reconcileDoc()
       this.emit()
       return true
     } catch {
@@ -317,11 +326,7 @@ class PlayerEngine {
     try {
       const r = await api<{ rechunked: boolean }>("/api/state", { voice })
       this.doc.voice = voice
-      if (r.rechunked) {
-        const keep = this.idx
-        await this.loadDoc()
-        this.jump(keep)
-      }
+      if (r.rechunked) await this.reconcileDoc()
       this.emit()
       return true
     } catch {

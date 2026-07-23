@@ -15,7 +15,12 @@ import { deleteClone, voiceLabel, type Voice } from "@/lib/api"
 import { player } from "@/lib/player"
 import { cn } from "@/lib/utils"
 
-function confirmDelete(v: Voice) {
+/** `activeVoice` is the combobox's current selection at delete time: if the
+ *  deleted clone was in use, the server already reset the voice to the
+ *  engine's default and rechunked, so the client must refetch the doc the
+ *  same way setVoice does after a rechunk — otherwise the trigger keeps
+ *  showing the now-dangling deleted id. */
+function confirmDelete(v: Voice, activeVoice: string) {
   toast(`Delete cloned voice "${v.name}"?`, {
     action: {
       label: "Delete",
@@ -23,6 +28,7 @@ function confirmDelete(v: Voice) {
         void (async () => {
           try {
             await deleteClone(v.id)
+            if (v.id === activeVoice) await player.reconcileDoc()
             await player.refreshVoices()
             toast.success(`"${v.name}" deleted`)
           } catch (err) {
@@ -69,7 +75,7 @@ export function VoiceCombobox({ voice, voices, className }: { voice: string; voi
         >
           <span className="flex min-w-0 items-center gap-2">
             <MicVocal className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-            <span className="truncate">{selected ? voiceLabel(selected) : voice || "Voice"}</span>
+            <span className="truncate">{selected ? voiceLabel(selected) : "Voice"}</span>
           </span>
           <ChevronsUpDown className="size-3.5 shrink-0 opacity-50" aria-hidden />
         </Button>
@@ -98,7 +104,7 @@ export function VoiceCombobox({ voice, voices, className }: { voice: string; voi
                         onPointerDown={(e) => e.stopPropagation()}
                         onClick={(e) => {
                           e.stopPropagation()
-                          confirmDelete(v)
+                          confirmDelete(v, voice)
                         }}
                       >
                         <X className="size-3" aria-hidden />

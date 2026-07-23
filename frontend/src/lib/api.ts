@@ -68,7 +68,10 @@ export async function api<T>(path: string, body?: unknown, method?: string, raw?
     if (!raw) init.headers = { "Content-Type": "application/json" }
   }
   const resp = await fetch(path, init)
-  if (!resp.ok) throw new Error(`${path}: ${resp.status}`)
+  if (!resp.ok) {
+    const body = (await resp.json().catch(() => null)) as { detail?: unknown } | null
+    throw new Error(typeof body?.detail === "string" ? body.detail : `${path}: ${resp.status}`)
+  }
   return resp.json() as Promise<T>
 }
 

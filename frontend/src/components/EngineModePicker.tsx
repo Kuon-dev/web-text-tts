@@ -54,8 +54,11 @@ export function EngineList({
   engineInfo: EngineInfo | null
 }) {
   const select = async (id: string) => {
-    if (id !== current && !(await player.setEngine(id))) {
-      toast.error("Engine switch failed — is the server running?")
+    if (id === current) return
+    try {
+      await player.setEngine(id)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Engine switch failed — is the server running?")
     }
   }
 
@@ -100,8 +103,11 @@ export function EngineModeList({ engine }: { engine: EngineInfo | null }) {
   const active = engine?.active ?? "gpu"
 
   const select = async (m: DeviceMode) => {
-    if (m !== mode && !(await player.setDeviceMode(m))) {
-      toast.error("Engine change failed — is the server running?")
+    if (m === mode) return
+    try {
+      await player.setDeviceMode(m)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Engine change failed — is the server running?")
     }
   }
 
