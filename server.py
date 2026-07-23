@@ -169,10 +169,14 @@ def create_app(data_dir: Path, worker, audio_wait: float = 30.0, *, manager,
     # (silently downgraded inside the manager, but state.json still shows
     # the stale value) or a persisted instruct the manager never saw at all
     # (EngineManager's constructor has no instruct param).
+    # device_mode is a user preference, never clobbered: when the active
+    # engine doesn't support it the engine just runs "auto" and the
+    # preference stays in st.state, ready to revive on the next engine that
+    # supports it (matches the runtime swap arm in post_state below).
     if st.state["device_mode"] not in manager.supported_modes():
-        log.warning("persisted device_mode %r unsupported by engine %r, falling back to auto",
-                    st.state["device_mode"], manager.engine_id)
-        st.state["device_mode"] = "auto"
+        log.info("persisted device_mode %r unsupported by engine %r, running auto "
+                  "(preference kept for a future compatible engine)",
+                  st.state["device_mode"], manager.engine_id)
         manager.set_mode("auto")
     if st.state["instruct"]:
         manager.set_instruct(st.state["instruct"])
@@ -223,9 +227,11 @@ def create_app(data_dir: Path, worker, audio_wait: float = 30.0, *, manager,
 
     @app.get("/api/status")
     def get_status():
-        with st.lock:
-            did = st.doc_id
-        out = {"doc_id": did, **worker.status()}
+        # No st.lock: post_state holds it across blocking manager calls (set_mode/
+        # swap/set_instruct wait on the manager lock held by an in-flight synthesize -
+        # multi-second on slow engines), and status polling must not freeze behind
+        # that. st.doc_id is a str, rebound atomically under the GIL - safe unlocked.
+        out = {"doc_id": st.doc_id, **worker.status()}
         out["engine"] = {**manager.info(), "speed": round(getattr(worker, "speed", 0.0), 2)}
         return out
 
@@ -247,15 +253,14 @@ def create_app(data_dir: Path, worker, audio_wait: float = 30.0, *, manager,
             # worker redirected - so a later field failing validation must
             # not leave that swap half-applied). --
             target_engine = body.engine if body.engine is not None else manager.engine_id
+            target_entry = next((e for e in engines() if e["id"] == target_engine), None)
             if body.engine is not None:
-                entry = next((e for e in engines() if e["id"] == body.engine), None)
-                if entry is None:
+                if target_entry is None:
                     raise HTTPException(400, f"unknown engine: {body.engine}")
-                if not entry["available"]:
-                    raise HTTPException(400, entry["reason"])
+                if not target_entry["available"]:
+                    raise HTTPException(400, target_entry["reason"])
             if body.device_mode is not None:
-                entry = next((e for e in engines() if e["id"] == target_engine), None)
-                supported = entry["supported_modes"] if entry is not None else manager.supported_modes()
+                supported = target_entry["supported_modes"] if target_entry is not None else manager.supported_modes()
                 if body.device_mode not in supported:
                     raise HTTPException(400, "unsupported device mode for this engine")
             if body.voice is not None:
@@ -272,8 +277,12 @@ def create_app(data_dir: Path, worker, audio_wait: float = 30.0, *, manager,
             if body.volume is not None:
                 st.state["volume"] = min(1.0, max(0.0, body.volume))
             if body.engine is not None and body.engine != manager.engine_id:
+                # device_mode is a preference, never clobbered here: if the target
+                # engine doesn't support it it just runs "auto" for now, and
+                # switching back to a compatible engine later revives it.
+                mode = st.state["device_mode"] if st.state["device_mode"] in target_entry["supported_modes"] else "auto"
                 try:
-                    manager.swap(body.engine, st.state["device_mode"])
+                    manager.swap(body.engine, mode)
                 except ValueError as exc:          # belt-and-suspenders: phase 1 already validated
                     raise HTTPException(400, str(exc))
                 st.state["engine"] = body.engine

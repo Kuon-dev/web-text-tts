@@ -291,6 +291,23 @@ def test_malformed_state_fields_fall_back(tmp_path):
     assert manager.modes == ["auto"]  # cpu unsupported by qwen3 -> corrected at startup
 
 
+def test_startup_keeps_device_mode_preference_unsupported_by_persisted_engine(tmp_path):
+    # device_mode is a user preference, never clobbered: an engine that can't
+    # run it just runs "auto" for now, but the preference itself must survive
+    # startup untouched so a later engine that supports it can revive it.
+    (tmp_path / "state.json").write_text(json.dumps({
+        "engine": "qwen3", "device_mode": "cpu",
+    }))
+    manager = FakeManager()
+    manager.engine_id = "qwen3"  # mirrors main() constructing the manager on "qwen3"
+    app = create_app(tmp_path, FakeWorker(tmp_path / "cache"), manager=manager,
+                     engines=lambda: FakeManager.CATALOG)
+    assert manager.modes == ["auto"]  # qwen3 has no cpu mode -> engine runs auto
+    client = TestClient(app)
+    client.post("/api/state", json={})  # no-op POST still flushes st.state to disk
+    assert json.loads((tmp_path / "state.json").read_text())["device_mode"] == "cpu"
+
+
 def test_engine_mode_applied_persisted_and_validated(tmp_path):
     manager = FakeManager()
     app = create_app(tmp_path, FakeWorker(tmp_path / "cache"), manager=manager,
@@ -330,6 +347,16 @@ def test_state_migration_from_v2():
     assert "voice" not in migrated
 
 
+def test_migrate_state_is_idempotent():
+    # main() and AppState.__init__ both call migrate_state on whatever's on
+    # disk; running it a second time (e.g. on already-migrated state.json)
+    # must be a no-op, not re-interpret a real device_mode as a v2 "engine".
+    once = migrate_state({"positions": {"d": 3}, "voice": "am_adam",
+                          "speed": 1.5, "volume": 0.8, "engine": "cpu"})
+    twice = migrate_state(once)
+    assert twice == once
+
+
 def test_engines_endpoint(tmp_path):
     app, _, _ = make_app(tmp_path)
     with TestClient(app) as client:
@@ -361,6 +388,17 @@ def test_engine_swap_switches_voice_and_rechunks(tmp_path):
         # swapping back remembers the kokoro voice
         client.post("/api/state", json={"engine": "kokoro"})
         assert json.loads((tmp_path / "state.json").read_text())["voices"]["kokoro"] == "af_heart"
+
+
+def test_swap_round_trip_revives_device_mode_preference(tmp_path):
+    app, _, manager = make_app(tmp_path)
+    with TestClient(app) as client:
+        assert client.post("/api/state", json={"device_mode": "cpu"}).status_code == 200
+        assert client.post("/api/state", json={"engine": "qwen3"}).status_code == 200
+        assert manager.swaps == [("qwen3", "auto")]  # qwen3 has no cpu mode
+        assert json.loads((tmp_path / "state.json").read_text())["device_mode"] == "cpu"
+        assert client.post("/api/state", json={"engine": "kokoro"}).status_code == 200
+        assert manager.swaps == [("qwen3", "auto"), ("kokoro", "cpu")]  # preference revived
 
 
 def test_device_mode_validated_per_engine(tmp_path):
