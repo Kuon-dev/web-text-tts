@@ -1,7 +1,7 @@
 # Pluggable TTS Engines — Kokoro + Qwen3-TTS
 
 **Date:** 2026-07-23
-**Status:** Draft (pending user review)
+**Status:** Implemented (pending 4060 verification — Task 12)
 **Extends:** `2026-07-14-novel-tts-design.md` (v2.13)
 
 ## Purpose
