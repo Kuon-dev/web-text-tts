@@ -119,18 +119,23 @@ class EvictedFileWorker(FakeWorker):
         return event
 
 
+def _fake_voice_ids(engine_id, clone_store):
+    return {v.id for v in FakeManager.VOICES[engine_id]}
+
+
 def make_client(tmp_path, worker_cls=FakeWorker, audio_wait=0.05, manager=None):
     worker = worker_cls(tmp_path / "cache")
     manager = manager or FakeManager()
     app = create_app(tmp_path, worker, audio_wait=audio_wait, manager=manager,
-                     engines=lambda: FakeManager.CATALOG)
+                     engines=lambda: FakeManager.CATALOG, voice_ids=_fake_voice_ids)
     return TestClient(app), worker
 
 
 def make_app(tmp_path, worker=None, manager=None):
     worker = worker or FakeWorker(tmp_path / "cache")
     manager = manager or FakeManager()
-    app = create_app(tmp_path, worker, manager=manager, engines=lambda: FakeManager.CATALOG)
+    app = create_app(tmp_path, worker, manager=manager, engines=lambda: FakeManager.CATALOG,
+                     voice_ids=_fake_voice_ids)
     return app, worker, manager
 
 
@@ -381,6 +386,30 @@ def test_unknown_engine_and_voice_rejected(tmp_path):
     with TestClient(app) as client:
         assert client.post("/api/state", json={"engine": "espeak"}).status_code == 400
         assert client.post("/api/state", json={"voice": "Ryan"}).status_code == 400  # not in kokoro catalog
+
+
+def test_combined_engine_voice_rejected_atomically(tmp_path):
+    (tmp_path / "novel.txt").write_text("Hello world.")
+    app, worker, manager = make_app(tmp_path)
+    with TestClient(app) as client:
+        docs_before = len(worker.docs)
+        r = client.post("/api/state", json={"engine": "qwen3", "voice": "af_heart"})
+        assert r.status_code == 400
+        assert manager.swaps == [] and manager.engine_id == "kokoro"
+        assert len(worker.docs) == docs_before
+        assert not (tmp_path / "state.json").exists() or \
+            json.loads((tmp_path / "state.json").read_text()).get("engine", "kokoro") == "kokoro"
+
+
+def test_combined_engine_and_new_engine_voice_applies(tmp_path):
+    (tmp_path / "novel.txt").write_text("Hello world.")
+    app, worker, manager = make_app(tmp_path)
+    with TestClient(app) as client:
+        r = client.post("/api/state", json={"engine": "qwen3", "voice": "Ryan"})
+        assert r.status_code == 200 and r.json()["rechunked"] is True
+        assert manager.swaps == [("qwen3", "auto")]
+        state = json.loads((tmp_path / "state.json").read_text())
+        assert state["engine"] == "qwen3" and state["voices"]["qwen3"] == "Ryan"
 
 
 def test_clone_upload_and_delete(tmp_path):

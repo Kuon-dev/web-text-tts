@@ -30,6 +30,18 @@ def engine_catalog() -> list[dict]:
     return out
 
 
+def voice_ids(engine_id: str, clone_store=None) -> set[str]:
+    """Voice ids an engine would offer, without constructing it."""
+    if engine_id == "kokoro":
+        from .kokoro import VOICES
+        return set(VOICES)
+    from .qwen import PRESETS
+    out = {name for name, _, _ in PRESETS}
+    if clone_store is not None:
+        out |= {v.id for v in clone_store.voices()}
+    return out
+
+
 def create_engine(engine_id: str, mode: str, clone_store=None):
     if engine_id not in ENGINE_IDS:
         raise ValueError(f"unknown engine: {engine_id}")

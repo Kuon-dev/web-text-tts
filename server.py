@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from chunker import chunk_id, chunk_text, doc_id, doc_images
 from images import MAX_IMAGE_BYTES, MEDIA_TYPES, ImageError, ImageStore, sniff
 from tts.registry import engine_catalog
+from tts.registry import voice_ids as _default_voice_ids
 from tts.voices import CloneError
 
 log = logging.getLogger("novel-tts")
@@ -154,10 +155,12 @@ class AppState:
         return any(chunk_id(ns, c.text) == cid for c in self.chunks)
 
 
-def create_app(data_dir: Path, worker, audio_wait: float = 30.0, manager=None, engines=None) -> FastAPI:
+def create_app(data_dir: Path, worker, audio_wait: float = 30.0, *, manager,
+               engines=None, voice_ids=None) -> FastAPI:
     data_dir = Path(data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
     engines = engines or engine_catalog
+    voice_ids = voice_ids or _default_voice_ids
     st = AppState(data_dir, worker, manager)
     # The manager already reflects its persisted mode/instruct from
     # construction (main() builds it with mode=<persisted>); only step in
@@ -238,6 +241,27 @@ def create_app(data_dir: Path, worker, audio_wait: float = 30.0, manager=None, e
     def post_state(body: StateBody):
         rechunked = False
         with st.lock:
+            # -- phase 1: validate the whole request before mutating anything
+            # (swapping engines is a real side effect - old model unloaded,
+            # worker redirected - so a later field failing validation must
+            # not leave that swap half-applied). --
+            target_engine = body.engine if body.engine is not None else manager.engine_id
+            if body.engine is not None:
+                entry = next((e for e in engines() if e["id"] == body.engine), None)
+                if entry is None:
+                    raise HTTPException(400, f"unknown engine: {body.engine}")
+                if not entry["available"]:
+                    raise HTTPException(400, entry["reason"])
+            if body.device_mode is not None:
+                entry = next((e for e in engines() if e["id"] == target_engine), None)
+                supported = entry["supported_modes"] if entry is not None else manager.supported_modes()
+                if body.device_mode not in supported:
+                    raise HTTPException(400, "unsupported device mode for this engine")
+            if body.voice is not None:
+                if body.voice not in voice_ids(target_engine, manager.clone_store):
+                    raise HTTPException(400, "unknown voice")
+
+            # -- phase 2: apply, now that every field is known-good --
             if body.position is not None:
                 pos = max(0, min(body.position, max(len(st.chunks) - 1, 0)))
                 st.state["positions"][st.doc_id] = pos
@@ -249,15 +273,13 @@ def create_app(data_dir: Path, worker, audio_wait: float = 30.0, manager=None, e
             if body.engine is not None and body.engine != manager.engine_id:
                 try:
                     manager.swap(body.engine, st.state["device_mode"])
-                except ValueError as exc:
+                except ValueError as exc:          # belt-and-suspenders: phase 1 already validated
                     raise HTTPException(400, str(exc))
                 st.state["engine"] = body.engine
                 manager.set_instruct(st.state["instruct"])
                 st.load_doc()                      # new namespace -> new cids
                 rechunked = True
             if body.device_mode is not None:
-                if body.device_mode not in manager.supported_modes():
-                    raise HTTPException(400, "unsupported device mode for this engine")
                 st.state["device_mode"] = body.device_mode
                 manager.set_mode(body.device_mode)
             if body.instruct is not None and body.instruct != st.state["instruct"]:
@@ -266,8 +288,6 @@ def create_app(data_dir: Path, worker, audio_wait: float = 30.0, manager=None, e
                 st.load_doc()                      # instruct is in preset fingerprints
                 rechunked = True
             if body.voice is not None and body.voice != st.voice():
-                if body.voice not in {v.id for v in manager.voices()}:
-                    raise HTTPException(400, "unknown voice")
                 st.state["voices"][manager.engine_id] = body.voice
                 st.load_doc()
                 rechunked = True

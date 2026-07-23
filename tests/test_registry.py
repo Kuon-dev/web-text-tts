@@ -25,3 +25,10 @@ def test_qwen_unavailable_without_package(monkeypatch):
 def test_create_engine_rejects_unknown_id():
     with pytest.raises(ValueError, match="unknown engine"):
         create_engine("espeak", "auto")
+
+
+def test_voice_ids_static_lookup():
+    from tts.registry import voice_ids
+    assert "af_heart" in voice_ids("kokoro")
+    assert "Ryan" in voice_ids("qwen3")
+    assert len(voice_ids("kokoro")) == 16 and len(voice_ids("qwen3")) == 9
