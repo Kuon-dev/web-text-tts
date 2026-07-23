@@ -125,8 +125,9 @@ class AppState:
         self.chunks = chunk_text(raw)
         self.image_refs = doc_images(raw)
         self.images.prune({r.id for r in self.image_refs})
-        ns = self.manager.chunk_namespace(self.voice())
-        self.worker.set_doc(self.chunks, ns, position=self.position())
+        voice = self.voice()
+        ns = self.manager.chunk_namespace(voice)
+        self.worker.set_doc(self.chunks, ns, voice, position=self.position())
 
     def doc_json(self) -> dict:
         voice = self.voice()

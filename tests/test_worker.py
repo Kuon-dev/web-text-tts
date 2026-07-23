@@ -221,3 +221,22 @@ def test_duration_math_follows_engine_sample_rate(tmp_path):
     cid = chunk_id("ns", chunks[0].text)
     assert wait_until(lambda: cid in worker.status()["durations"])
     assert worker.status()["durations"][cid] == pytest.approx(1.0, abs=0.01)
+
+
+def test_engine_receives_bare_voice_not_namespace(tmp_path):
+    class VoiceRecorder(FakeEngine):
+        def __init__(self):
+            super().__init__()
+            self.voices = []
+
+        def synthesize(self, text, voice, urgent=False):
+            self.voices.append(voice)
+            return super().synthesize(text, voice, urgent=urgent)
+
+    engine = VoiceRecorder()
+    worker = TTSWorker(tmp_path, engine)
+    chunks = make_chunks(1)
+    worker.set_doc(chunks, "kokoro\x002\x00af_heart", voice="af_heart")
+    cid = chunk_id("kokoro\x002\x00af_heart", chunks[0].text)
+    assert wait_until(lambda: worker.path(cid).exists())
+    assert engine.voices == ["af_heart"]

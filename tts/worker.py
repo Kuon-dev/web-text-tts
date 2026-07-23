@@ -52,6 +52,7 @@ class TTSWorker:
         self._chunks: list[Chunk] = []
         self._cids: list[str] = []
         self._namespace = ""
+        self._voice = ""
         self._position = 0
         self._requests: list[str] = []
         self._attempts: dict[str, int] = {}
@@ -62,10 +63,11 @@ class TTSWorker:
         self._thread.start()
 
     # -- public API (thread-safe) ------------------------------------------
-    def set_doc(self, chunks: list[Chunk], namespace: str, position: int = 0) -> None:
+    def set_doc(self, chunks: list[Chunk], namespace: str, voice: str = "", position: int = 0) -> None:
         with self._cond:
             self._chunks = list(chunks)
             self._namespace = namespace
+            self._voice = voice
             self._cids = [chunk_id(namespace, c.text) for c in chunks]
             self._position = position
             self._requests.clear()
@@ -170,12 +172,12 @@ class TTSWorker:
                     self._cond.wait(timeout=1.0)
                     continue
                 cid, text, urgent = job
-                namespace = self._namespace
+                voice = self._voice
                 self._attempts[cid] = self._attempts.get(cid, 0) + 1
             try:
                 sr = self._engine.sample_rate
                 start = time.monotonic()
-                audio = self._engine.synthesize(text, namespace, urgent=urgent)
+                audio = self._engine.synthesize(text, voice, urgent=urgent)
                 wall = time.monotonic() - start
                 tmp = self.path(cid).with_suffix(".tmp")
                 sf.write(tmp, audio, sr, format="WAV", subtype="PCM_16")

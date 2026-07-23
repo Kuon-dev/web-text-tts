@@ -17,11 +17,11 @@ class FakeWorker:
     def __init__(self, cache_dir: Path):
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        self.docs = []          # (chunks, namespace, position) calls
+        self.docs = []          # (chunks, namespace, voice, position) calls
         self.positions = []
 
-    def set_doc(self, chunks, namespace, position=0):
-        self.docs.append((list(chunks), namespace, position))
+    def set_doc(self, chunks, namespace, voice="", position=0):
+        self.docs.append((list(chunks), namespace, voice, position))
 
     def set_position(self, idx):
         self.positions.append(idx)
