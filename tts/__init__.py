@@ -9,6 +9,7 @@ from .kokoro import (
     VOICES,
     KokoroEngine,
 )
+from .manager import EngineManager
 from .worker import (
     CACHE_CAP_BYTES,
     CHARS_PER_SECOND,
