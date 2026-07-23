@@ -105,3 +105,13 @@ def test_cpu_mode_releases_gpu():
 def test_startup_vram_gate_in_auto():
     policy, _, _ = make(free=500 * 2**20)               # game already holding VRAM
     assert policy.pick() == "cpu"                       # starts unhealthy
+
+
+def test_vram_probe_error_keeps_gate_closed():
+    def boom():
+        raise RuntimeError("driver unhappy")
+    policy, clock, _ = make(free=0)
+    policy._vram_free = boom
+    policy.failed("contended")
+    clock.t += GPU_RETRY_S + 1
+    assert policy.pick(urgent=False) == "cpu"   # gate treats error as closed

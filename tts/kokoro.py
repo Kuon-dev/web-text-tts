@@ -5,6 +5,9 @@ import time
 
 import numpy as np
 
+from .base import DEVICE_MODES, TTSEngine, Voice
+from .device import DevicePolicy
+
 log = logging.getLogger("novel-tts")
 
 SAMPLE_RATE = 24000
@@ -26,12 +29,9 @@ SAMPLE_RATE = 24000
 # That failover is the "auto" mode. The user can also pin the engine: "gpu"
 # always uses CUDA (no failover, no watchdog — the user chose it), "cpu"
 # never touches the GPU at all, leaving every byte of VRAM to the game.
-ENGINE_MODES = ("auto", "gpu", "cpu")
+ENGINE_MODES = DEVICE_MODES
 GPU_MIN_SPEED = 1.5
 GPU_STALL_SECONDS = 45.0
-GPU_RETRY_S = 600.0
-GPU_RETRY_MAX_S = 3600.0
-GPU_VRAM_POLL_S = 30.0
 GPU_MIN_FREE_BYTES = 1_500_000_000  # start on CPU if a game already holds VRAM
 
 VOICES = [
@@ -41,28 +41,46 @@ VOICES = [
     "bm_george", "bm_lewis", "bm_fable",
 ]
 
+PRONUNCIATION_V = "2"   # moved from chunker.py; bump when pronunciation rules change
 
-class KokoroEngine:
-    """Lazy per-(language, device) KPipeline wrapper with GPU->CPU failover."""
+_GROUPS = {"af": ("US female", "en-US"), "am": ("US male", "en-US"),
+           "bf": ("UK female", "en-GB"), "bm": ("UK male", "en-GB")}
+
+
+class KokoroEngine(TTSEngine):
+    """Lazy per-(language, device) KPipeline wrapper; policy handles failover."""
+
+    id = "kokoro"
+    label = "Kokoro-82M"
+    default_voice = "af_heart"
+    sample_rate = SAMPLE_RATE
 
     def __init__(self, mode: str = "auto"):
         import torch
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self._mode = mode if mode in ENGINE_MODES else "auto"
-        log.info("Kokoro device: %s (mode: %s)", self.device, self._mode)
+        gpu = torch.cuda.is_available()
+        super().__init__(DevicePolicy(
+            allow_cpu=True, min_gpu_speed=GPU_MIN_SPEED,
+            min_free_bytes=GPU_MIN_FREE_BYTES, mode=mode, gpu_available=gpu,
+            release_gpu=self._release_gpu,
+            # pinned modes never call this: "cpu" must not create a CUDA
+            # context, "gpu" ignores the gate (DevicePolicy only gates auto)
+        ))
+        log.info("Kokoro gpu_available=%s mode=%s", gpu, self.policy.mode)
         self._pipelines = {}
-        self._gpu_ok = True
-        self._gpu_dirty = False
-        self._gpu_retry_at = 0.0
-        self._gpu_retry_wait = GPU_RETRY_S
-        if self.device == "cuda" and self._mode == "auto":
-            # mem_get_info creates a CUDA context (~300MB VRAM), so pinned
-            # modes skip it: "cpu" must not take VRAM, "gpu" ignores it.
-            free, _total = torch.cuda.mem_get_info()
-            if free < GPU_MIN_FREE_BYTES:
-                log.warning("GPU has only %dMB free — starting on CPU", free // 2**20)
-                self._gpu_ok = False
-                self._gpu_retry_at = time.monotonic() + GPU_RETRY_S
+
+    def voices(self):
+        out = []
+        for vid in VOICES:
+            group, lang = _GROUPS[vid[:2]]
+            out.append(Voice(id=vid, name=vid[3:].capitalize(), group=group, language=lang))
+        return out
+
+    def fingerprint(self, voice_id):
+        return PRONUNCIATION_V
+
+    def is_speakable(self, text):
+        # kanji/kana would be espeak-mangled by the a/b voices; keep silencing
+        return re.search(r"[A-Za-z0-9]", text) is not None
 
     def _pipeline(self, voice: str, device: str):
         key = (voice[0], device)
@@ -79,27 +97,22 @@ class KokoroEngine:
             self._pipelines[key] = pipe
         return self._pipelines[key]
 
-    def set_mode(self, mode: str) -> None:
-        if mode not in ENGINE_MODES:
-            raise ValueError(f"unknown engine mode: {mode}")
-        if mode == self._mode:
-            return
-        self._mode = mode
-        log.info("engine mode -> %s", mode)
-        if mode == "cpu":
-            self._release_gpu()
-            # an in-flight GPU chunk still holds model refs; release again
-            # once it finishes so all the VRAM actually goes back to the game
-            self._gpu_dirty = True
-        else:
-            self._gpu_ok = True  # fresh optimism; auto re-measures on the next chunk
-            self._gpu_retry_wait = GPU_RETRY_S
-
-    def info(self) -> dict:
-        gpu = self.device == "cuda"
-        on_gpu = gpu and self._mode != "cpu" and (self._mode == "gpu" or self._gpu_ok)
-        return {"mode": self._mode, "active": "gpu" if on_gpu else "cpu",
-                "gpu_available": gpu}
+    def _generate(self, text, voice, device):
+        import torch
+        start = time.monotonic()
+        pieces = []
+        for result in self._pipeline(voice, device)(text, voice=voice):
+            audio = getattr(result, "audio", None)
+            if audio is None and isinstance(result, tuple):
+                audio = result[2]
+            if audio is not None:
+                pieces.append(audio if isinstance(audio, torch.Tensor) else torch.as_tensor(audio))
+            if (device == "cuda" and self.policy.mode == "auto"
+                    and time.monotonic() - start > GPU_STALL_SECONDS):
+                raise RuntimeError(f"stalled mid-chunk (>{GPU_STALL_SECONDS:.0f}s)")
+        if not pieces:
+            raise RuntimeError(f"Kokoro produced no audio for: {text[:60]!r}")
+        return torch.cat(pieces).cpu().numpy().astype(np.float32)
 
     def _release_gpu(self):
         import gc
@@ -110,82 +123,6 @@ class KokoroEngine:
         if torch.cuda.is_initialized():
             torch.cuda.empty_cache()  # hand the VRAM back to the game
 
-    def _pick_device(self, urgent: bool) -> str:
-        if self.device != "cuda" or self._mode == "cpu":
-            return "cpu"
-        if self._mode == "gpu" or self._gpu_ok:
-            return "cuda"
-        if not urgent and time.monotonic() >= self._gpu_retry_at:
-            if self._gpu_probe_allowed():
-                return "cuda"  # probe on a chunk nobody is waiting for
-            self._gpu_retry_at = time.monotonic() + GPU_VRAM_POLL_S
-        return "cpu"
-
-    def _gpu_probe_allowed(self) -> bool:
-        import torch
-        try:
-            free, _total = torch.cuda.mem_get_info()
-        except Exception:
-            return False  # driver unhappy — a real probe would fare no better
-        if free >= GPU_MIN_FREE_BYTES:
-            self._vram_wait_logged = False
-            return True
-        if not getattr(self, "_vram_wait_logged", False):
-            # one line per contention episode, not one per 30s poll
-            self._vram_wait_logged = True
-            log.info("GPU has only %dMB free — waiting for VRAM before re-trying GPU",
-                     free // 2**20)
-        return False
-
-    def _gpu_failed(self, reason: str):
-        import torch
-        level = log.warning if self._gpu_ok else log.info
-        level("GPU %s — using CPU (next GPU try in %.0fs)", reason, self._gpu_retry_wait)
-        self._gpu_ok = False
-        self._gpu_retry_at = time.monotonic() + self._gpu_retry_wait
-        self._gpu_retry_wait = min(self._gpu_retry_wait * 2, GPU_RETRY_MAX_S)
-        if torch.cuda.is_initialized():
-            torch.cuda.empty_cache()  # hand cached VRAM back to the game
-
-    def _gpu_measured(self, speed: float):
-        if speed < GPU_MIN_SPEED:
-            self._gpu_failed(f"at {speed:.2f}x realtime (contended)")
-        elif not self._gpu_ok:
-            log.info("GPU recovered (%.1fx realtime) — back to CUDA", speed)
-            self._gpu_ok = True
-            self._gpu_retry_wait = GPU_RETRY_S
-
-    def synthesize(self, text: str, voice: str, urgent: bool = False) -> np.ndarray:
-        if not re.search(r"[A-Za-z0-9]", text):
-            # scene separators ("***", "* * *", "◆ ◆ ◆") have no speakable
-            # content and make Kokoro raise; treat them as a narrator pause.
-            return np.zeros(int(0.4 * SAMPLE_RATE), dtype=np.float32)
-        import torch
-        device = self._pick_device(urgent)
-        if device == "cpu" and getattr(self, "_gpu_dirty", False):
-            self._gpu_dirty = False
-            self._release_gpu()
-        start = time.monotonic()
-        pieces = []
-        try:
-            for result in self._pipeline(voice, device)(text, voice=voice):
-                audio = getattr(result, "audio", None)
-                if audio is None and isinstance(result, tuple):
-                    audio = result[2]
-                if audio is not None:
-                    pieces.append(audio if isinstance(audio, torch.Tensor) else torch.as_tensor(audio))
-                if (device == "cuda" and self._mode == "auto"
-                        and time.monotonic() - start > GPU_STALL_SECONDS):
-                    raise RuntimeError(f"stalled mid-chunk (>{GPU_STALL_SECONDS:.0f}s)")
-        except Exception as exc:
-            if device == "cuda" and self._mode == "auto":
-                self._gpu_failed(str(exc))
-            raise
-        if not pieces:
-            raise RuntimeError(f"Kokoro produced no audio for: {text[:60]!r}")
-        out = torch.cat(pieces).cpu().numpy().astype(np.float32)
-        if device == "cuda" and self._mode == "auto":
-            wall = time.monotonic() - start
-            if wall >= 1.0 and len(out) >= 3 * SAMPLE_RATE:
-                self._gpu_measured((len(out) / SAMPLE_RATE) / wall)
-        return out
+    def unload(self):
+        self._pipelines = {}
+        self._release_gpu()
