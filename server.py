@@ -5,6 +5,7 @@ import json
 import logging
 import threading
 from contextlib import asynccontextmanager
+from dataclasses import asdict
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
@@ -14,13 +15,26 @@ from pydantic import BaseModel
 
 from chunker import chunk_id, chunk_text, doc_id, doc_images
 from images import MAX_IMAGE_BYTES, MEDIA_TYPES, ImageError, ImageStore, sniff
-from tts import ENGINE_MODES, VOICES
+from tts.registry import engine_catalog
+from tts.voices import CloneError
 
 log = logging.getLogger("novel-tts")
 STATIC_DIR = Path(__file__).parent / "static"
 POLL_SECONDS = 1.0
-DEFAULT_STATE = {"positions": {}, "voice": "af_heart", "speed": 1.0, "volume": 1.0,
-                 "engine": "auto"}
+DEFAULT_STATE = {"positions": {}, "voices": {"kokoro": "af_heart"}, "speed": 1.0,
+                 "volume": 1.0, "engine": "kokoro", "device_mode": "auto", "instruct": ""}
+_ENGINE_DEFAULT_VOICE = {"kokoro": "af_heart", "qwen3": "Ryan"}
+
+
+def migrate_state(loaded: dict) -> dict:
+    """v2 state.json: `engine` held the device mode and `voice` a bare kokoro id."""
+    out = dict(loaded)
+    if out.get("engine") in ("auto", "gpu", "cpu"):
+        out.setdefault("device_mode", out.pop("engine"))
+        out.setdefault("engine", "kokoro")   # v2 only ever had one engine
+    if isinstance(out.get("voice"), str):
+        out.setdefault("voices", {"kokoro": out.pop("voice")})
+    return out
 
 
 class DocBody(BaseModel):
@@ -33,6 +47,8 @@ class StateBody(BaseModel):
     speed: float | None = None
     volume: float | None = None
     engine: str | None = None
+    device_mode: str | None = None
+    instruct: str | None = None
 
 
 class ImageFetchBody(BaseModel):
@@ -40,10 +56,11 @@ class ImageFetchBody(BaseModel):
 
 
 class AppState:
-    def __init__(self, data_dir: Path, worker):
+    def __init__(self, data_dir: Path, worker, manager):
         self.novel_path = data_dir / "novel.txt"
         self.state_path = data_dir / "state.json"
         self.worker = worker
+        self.manager = manager
         self.lock = threading.Lock()
         self.text = ""
         self.doc_id = ""
@@ -51,28 +68,47 @@ class AppState:
         self.images = ImageStore(data_dir / "images")
         self.image_refs = []
         self.mtime = 0.0
-        self.state = dict(DEFAULT_STATE)
+        # dict(DEFAULT_STATE) is a shallow copy: nested containers (positions,
+        # voices) must be copied too, or every AppState would share - and
+        # mutate - the same module-level dicts.
+        self.state = {**DEFAULT_STATE, "positions": {}, "voices": dict(DEFAULT_STATE["voices"])}
         if self.state_path.exists():
             try:
                 loaded = json.loads(self.state_path.read_text())
                 if not isinstance(loaded, dict):
                     raise ValueError("state.json is not an object")
+                loaded = migrate_state(loaded)
                 if not isinstance(loaded.get("positions"), dict):
                     loaded.pop("positions", None)
-                if loaded.get("voice") not in VOICES:
-                    loaded.pop("voice", None)
+                if not isinstance(loaded.get("voices"), dict):
+                    loaded.pop("voices", None)
                 if not isinstance(loaded.get("speed"), (int, float)) or isinstance(loaded.get("speed"), bool):
                     loaded.pop("speed", None)
                 if not isinstance(loaded.get("volume"), (int, float)) or isinstance(loaded.get("volume"), bool):
                     loaded.pop("volume", None)
-                if loaded.get("engine") not in ENGINE_MODES:
+                if not isinstance(loaded.get("engine"), str):
                     loaded.pop("engine", None)
+                if loaded.get("device_mode") not in ("auto", "gpu", "cpu"):
+                    loaded.pop("device_mode", None)
+                if not isinstance(loaded.get("instruct"), str):
+                    loaded.pop("instruct", None)
                 self.state.update(loaded)
             except (json.JSONDecodeError, OSError, ValueError, TypeError):
                 log.warning("state.json unreadable, starting fresh")
 
     def save_state(self):
         self.state_path.write_text(json.dumps(self.state, indent=2))
+
+    def voice(self) -> str:
+        """Current engine's voice, falling back to its default if unknown."""
+        eid = self.manager.engine_id
+        vid = self.state["voices"].get(eid)
+        known = {v.id for v in self.manager.voices()}
+        if vid not in known:
+            vid = self.manager.default_voice() if hasattr(self.manager, "default_voice") \
+                else _ENGINE_DEFAULT_VOICE.get(eid, next(iter(known)))
+            self.state["voices"][eid] = vid
+        return vid
 
     def position(self) -> int:
         raw = self.state["positions"].get(self.doc_id, 0)
@@ -89,10 +125,12 @@ class AppState:
         self.chunks = chunk_text(raw)
         self.image_refs = doc_images(raw)
         self.images.prune({r.id for r in self.image_refs})
-        self.worker.set_doc(self.chunks, self.state["voice"], position=self.position())
+        ns = self.manager.chunk_namespace(self.voice())
+        self.worker.set_doc(self.chunks, ns, position=self.position())
 
     def doc_json(self) -> dict:
-        voice = self.state["voice"]
+        voice = self.voice()
+        ns = self.manager.chunk_namespace(voice)
         return {
             "doc_id": self.doc_id,
             "voice": voice,
@@ -100,7 +138,7 @@ class AppState:
             "volume": self.state["volume"],
             "position": self.position(),
             "chunks": [
-                {"id": chunk_id(voice, c.text), "text": c.text, "para": c.para}
+                {"id": chunk_id(ns, c.text), "text": c.text, "para": c.para}
                 for c in self.chunks
             ],
             "images": [
@@ -111,16 +149,28 @@ class AppState:
         }
 
     def known_cid(self, cid: str) -> bool:
-        voice = self.state["voice"]
-        return any(chunk_id(voice, c.text) == cid for c in self.chunks)
+        ns = self.manager.chunk_namespace(self.voice())
+        return any(chunk_id(ns, c.text) == cid for c in self.chunks)
 
 
-def create_app(data_dir: Path, worker, audio_wait: float = 30.0, engine=None) -> FastAPI:
+def create_app(data_dir: Path, worker, audio_wait: float = 30.0, manager=None, engines=None) -> FastAPI:
     data_dir = Path(data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
-    st = AppState(data_dir, worker)
-    if engine is not None:
-        engine.set_mode(st.state["engine"])
+    engines = engines or engine_catalog
+    st = AppState(data_dir, worker, manager)
+    # The manager already reflects its persisted mode/instruct from
+    # construction (main() builds it with mode=<persisted>); only step in
+    # when that's NOT true - an engine-incompatible persisted device_mode
+    # (silently downgraded inside the manager, but state.json still shows
+    # the stale value) or a persisted instruct the manager never saw at all
+    # (EngineManager's constructor has no instruct param).
+    if st.state["device_mode"] not in manager.supported_modes():
+        log.warning("persisted device_mode %r unsupported by engine %r, falling back to auto",
+                    st.state["device_mode"], manager.engine_id)
+        st.state["device_mode"] = "auto"
+        manager.set_mode("auto")
+    if st.state["instruct"]:
+        manager.set_instruct(st.state["instruct"])
     with st.lock:
         st.load_doc()
 
@@ -171,15 +221,17 @@ def create_app(data_dir: Path, worker, audio_wait: float = 30.0, engine=None) ->
         with st.lock:
             did = st.doc_id
         out = {"doc_id": did, **worker.status()}
-        if engine is not None:
-            out["engine"] = {**engine.info(),
-                             "speed": round(getattr(worker, "speed", 0.0), 2)}
+        out["engine"] = {**manager.info(), "speed": round(getattr(worker, "speed", 0.0), 2)}
         return out
+
+    @app.get("/api/engines")
+    def get_engines():
+        return {"engines": engines(), "current": manager.engine_id}
 
     @app.get("/api/voices")
     def get_voices():
         with st.lock:
-            return {"voices": VOICES, "current": st.state["voice"]}
+            return {"voices": [asdict(v) for v in manager.voices()], "current": st.voice()}
 
     @app.post("/api/state")
     def post_state(body: StateBody):
@@ -193,20 +245,54 @@ def create_app(data_dir: Path, worker, audio_wait: float = 30.0, engine=None) ->
                 st.state["speed"] = min(3.0, max(0.5, body.speed))
             if body.volume is not None:
                 st.state["volume"] = min(1.0, max(0.0, body.volume))
-            if body.engine is not None:
-                if body.engine not in ENGINE_MODES:
-                    raise HTTPException(400, "unknown engine mode")
+            if body.engine is not None and body.engine != manager.engine_id:
+                try:
+                    manager.swap(body.engine, st.state["device_mode"])
+                except ValueError as exc:
+                    raise HTTPException(400, str(exc))
                 st.state["engine"] = body.engine
-                if engine is not None:
-                    engine.set_mode(body.engine)
-            if body.voice is not None and body.voice != st.state["voice"]:
-                if body.voice not in VOICES:
+                manager.set_instruct(st.state["instruct"])
+                st.load_doc()                      # new namespace -> new cids
+                rechunked = True
+            if body.device_mode is not None:
+                if body.device_mode not in manager.supported_modes():
+                    raise HTTPException(400, "unsupported device mode for this engine")
+                st.state["device_mode"] = body.device_mode
+                manager.set_mode(body.device_mode)
+            if body.instruct is not None and body.instruct != st.state["instruct"]:
+                st.state["instruct"] = body.instruct
+                manager.set_instruct(body.instruct)
+                st.load_doc()                      # instruct is in preset fingerprints
+                rechunked = True
+            if body.voice is not None and body.voice != st.voice():
+                if body.voice not in {v.id for v in manager.voices()}:
                     raise HTTPException(400, "unknown voice")
-                st.state["voice"] = body.voice
+                st.state["voices"][manager.engine_id] = body.voice
                 st.load_doc()
                 rechunked = True
             st.save_state()
         return {"ok": True, "rechunked": rechunked}
+
+    @app.post("/api/voices/clone")
+    async def post_clone(request: Request, name: str, language: str = "en"):
+        data = await request.body()
+        try:
+            voice = manager.clone_store.add(data, name=name, language=language)
+        except CloneError as exc:
+            raise HTTPException(400, str(exc))
+        return {"voice": asdict(voice)}
+
+    @app.delete("/api/voices/{vid}")
+    def delete_clone(vid: str):
+        if not manager.clone_store.delete(vid):
+            raise HTTPException(404, "unknown or non-cloned voice")
+        with st.lock:
+            if st.state["voices"].get("qwen3") == vid:
+                st.state["voices"].pop("qwen3")    # falls back to default on next use
+                if manager.engine_id == "qwen3":
+                    st.load_doc()
+                st.save_state()
+        return {"ok": True}
 
     @app.post("/api/image")
     async def post_image(request: Request):
@@ -294,19 +380,24 @@ def create_app(data_dir: Path, worker, audio_wait: float = 30.0, engine=None) ->
 
 def main():
     import uvicorn
-    from tts import KokoroEngine, TTSWorker
+    from tts import EngineManager, TTSWorker
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     root = Path(__file__).parent
-    # peek at the persisted mode so a "cpu"-pinned engine never even creates
-    # a CUDA context (AppState re-validates and applies it in create_app)
+    # peek at the persisted engine/mode so a "cpu"-pinned engine never even
+    # creates a CUDA context (create_app re-validates and applies it)
     try:
-        mode = json.loads((root / "state.json").read_text()).get("engine", "auto")
+        peek = migrate_state(json.loads((root / "state.json").read_text()))
     except (OSError, json.JSONDecodeError, AttributeError):
-        mode = "auto"
-    engine = KokoroEngine(mode=mode)
-    worker = TTSWorker(root / "cache", engine)
-    app = create_app(root, worker, engine=engine)
+        peek = {}
+    engine_id = peek.get("engine") if peek.get("engine") in ("kokoro", "qwen3") else "kokoro"
+    mode = peek.get("device_mode", "auto")
+    try:
+        manager = EngineManager(root, engine_id=engine_id, mode=mode)
+    except ValueError:                             # e.g. qwen-tts uninstalled since
+        manager = EngineManager(root, engine_id="kokoro", mode=mode)
+    worker = TTSWorker(root / "cache", manager)
+    app = create_app(root, worker, manager=manager)
     log.info("novel-tts ready: http://localhost:8765")
     uvicorn.run(app, host="127.0.0.1", port=8765, log_level="warning")
 

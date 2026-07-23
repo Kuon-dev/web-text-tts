@@ -1,12 +1,10 @@
 """TTS engines + generate-ahead worker. Import surface for server.py and tests."""
 from .base import DEVICE_MODES, EngineUnavailable, TTSEngine, Voice
 from .kokoro import (
-    ENGINE_MODES,
     GPU_MIN_FREE_BYTES,
     GPU_MIN_SPEED,
     GPU_STALL_SECONDS,
     SAMPLE_RATE,
-    VOICES,
     KokoroEngine,
 )
 from .manager import EngineManager

@@ -5,7 +5,7 @@ import time
 
 import numpy as np
 
-from .base import DEVICE_MODES, TTSEngine, Voice
+from .base import TTSEngine, Voice
 from .device import DevicePolicy
 
 log = logging.getLogger("novel-tts")
@@ -29,7 +29,6 @@ SAMPLE_RATE = 24000
 # That failover is the "auto" mode. The user can also pin the engine: "gpu"
 # always uses CUDA (no failover, no watchdog — the user chose it), "cpu"
 # never touches the GPU at all, leaving every byte of VRAM to the game.
-ENGINE_MODES = DEVICE_MODES
 GPU_MIN_SPEED = 1.5
 GPU_STALL_SECONDS = 45.0
 GPU_MIN_FREE_BYTES = 1_500_000_000  # start on CPU if a game already holds VRAM
