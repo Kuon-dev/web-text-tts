@@ -18,6 +18,7 @@ export interface Doc {
   voice: string
   speed: number
   volume?: number
+  instruct?: string
   images?: ImageRef[]
 }
 

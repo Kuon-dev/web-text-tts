@@ -376,9 +376,13 @@ def test_instruct_rechunks(tmp_path):
     (tmp_path / "novel.txt").write_text("Hello world.")
     app, _, manager = make_app(tmp_path)
     with TestClient(app) as client:
+        assert client.get("/api/doc").json()["instruct"] == ""            # default
         r = client.post("/api/state", json={"instruct": "read it calmly"})
         assert r.json()["rechunked"] is True
         assert manager.instructs == ["read it calmly"]
+        # GET /api/doc reflects the persisted instruct - the frontend's
+        # settings-dialog read-back path after the rechunk-triggered refetch.
+        assert client.get("/api/doc").json()["instruct"] == "read it calmly"
 
 
 def test_unknown_engine_and_voice_rejected(tmp_path):

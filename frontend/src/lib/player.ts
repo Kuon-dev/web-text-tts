@@ -51,7 +51,6 @@ class PlayerEngine {
   private playToken = 0
   private saveTimer: ReturnType<typeof setTimeout> | undefined
   private voices: Voice[] = []
-  private instructText = ""
   private engine: EngineInfo | null = null
   private blocked: string | null = null
   private started = false
@@ -89,7 +88,7 @@ class PlayerEngine {
       muted: this.muted,
       voice: this.doc.voice,
       voices: this.voices,
-      instruct: this.instructText,
+      instruct: this.doc.instruct ?? "",
       engine: this.engine,
       blocked: this.blocked,
     }
@@ -298,7 +297,7 @@ class PlayerEngine {
   async setInstruct(text: string): Promise<boolean> {
     try {
       const r = await api<{ rechunked: boolean }>("/api/state", { instruct: text })
-      this.instructText = text
+      this.doc.instruct = text
       if (r.rechunked) {
         const keep = this.idx
         await this.loadDoc()

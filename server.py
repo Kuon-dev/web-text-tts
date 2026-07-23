@@ -138,6 +138,7 @@ class AppState:
             "voice": voice,
             "speed": self.state["speed"],
             "volume": self.state["volume"],
+            "instruct": self.state["instruct"],
             "position": self.position(),
             "chunks": [
                 {"id": chunk_id(ns, c.text), "text": c.text, "para": c.para}
