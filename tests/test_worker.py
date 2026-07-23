@@ -5,10 +5,12 @@ import numpy as np
 import pytest
 
 from chunker import Chunk, chunk_id
-from tts import TTSWorker
+from tts import EngineUnavailable, TTSWorker
 
 
 class FakeEngine:
+    sample_rate = 24000
+
     def __init__(self, fail_texts=()):
         self.fail_texts = set(fail_texts)
         self.calls = []
@@ -170,3 +172,52 @@ def test_status_reports_chunk_durations(tmp_path):
     durations = worker.status()["durations"]
     # FakeEngine returns 1200 samples @ 24kHz = 0.05s per chunk
     assert all(abs(durations[c] - 0.05) < 0.005 for c in cids)
+
+
+class GatedEngine(FakeEngine):
+    """Unavailable for the first N calls, then works."""
+
+    def __init__(self, gate_calls=3):
+        super().__init__()
+        self.gate_calls = gate_calls
+
+    def synthesize(self, text, voice, urgent=False):
+        self.calls.append(text)
+        if len(self.calls) <= self.gate_calls:
+            raise EngineUnavailable("gpu contended")
+        return np.zeros(1200, dtype=np.float32)
+
+
+class SlowRateEngine(FakeEngine):
+    sample_rate = 48000                      # non-24k: duration math must follow
+
+    def synthesize(self, text, voice, urgent=False):
+        return np.zeros(48000, dtype=np.float32)   # exactly 1.0s at 48k
+
+
+def test_engine_unavailable_does_not_burn_attempts_or_mark_failed(tmp_path):
+    engine = GatedEngine(gate_calls=3)
+    worker = TTSWorker(tmp_path, engine, unavailable_wait=0.02)
+    chunks = make_chunks(1)
+    worker.set_doc(chunks, "ns")
+    cid = chunk_id("ns", chunks[0].text)
+    assert wait_until(lambda: worker.path(cid).exists())   # >MAX_ATTEMPTS calls happened
+    assert len(engine.calls) == 4
+    assert worker.status()["failed"] == []
+
+
+def test_blocked_reason_surfaces_and_clears(tmp_path):
+    engine = GatedEngine(gate_calls=2)
+    worker = TTSWorker(tmp_path, engine, unavailable_wait=0.02)
+    worker.set_doc(make_chunks(1), "ns")
+    assert wait_until(lambda: worker.status()["blocked"] == "gpu contended")
+    assert wait_until(lambda: worker.status()["blocked"] is None)   # cleared on success
+
+
+def test_duration_math_follows_engine_sample_rate(tmp_path):
+    worker = TTSWorker(tmp_path, SlowRateEngine())
+    chunks = make_chunks(1)
+    worker.set_doc(chunks, "ns")
+    cid = chunk_id("ns", chunks[0].text)
+    assert wait_until(lambda: cid in worker.status()["durations"])
+    assert worker.status()["durations"][cid] == pytest.approx(1.0, abs=0.01)

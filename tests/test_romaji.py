@@ -1,6 +1,5 @@
 """Romaji name G2P: Japanese names in translated novels get rule-based
 phonemes instead of espeak's English spelling-rule guesses."""
-import hashlib
 import json
 import sys
 import types
@@ -107,12 +106,3 @@ def test_pipeline_wraps_g2p_fallback(monkeypatch):
     pipe = e._pipeline("af_heart", "cpu")
     assert isinstance(pipe.g2p.fallback, RomajiFallback)
     assert pipe.g2p.fallback.delegate is original
-
-
-def test_chunk_id_versioned_so_old_pronunciations_regenerate():
-    from chunker import chunk_id
-
-    # the v1 formula (voice + text only) must be retired: cached WAVs with
-    # espeak-mangled names would otherwise play forever
-    v1 = hashlib.sha1("af_heart\x00Shion smiled.".encode()).hexdigest()
-    assert chunk_id("af_heart", "Shion smiled.") != v1

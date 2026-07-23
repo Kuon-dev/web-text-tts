@@ -9,7 +9,7 @@ import soundfile as sf
 
 from chunker import Chunk, chunk_id
 
-from .kokoro import SAMPLE_RATE
+from .base import EngineUnavailable
 
 log = logging.getLogger("novel-tts")
 
@@ -26,7 +26,9 @@ CACHE_CAP_BYTES = 2 * 1024 ** 3
 CHARS_PER_SECOND = 15.0  # narration pace measured on real chapters
 LOOKAHEAD_SECONDS = 180.0
 LOOKAHEAD_MAX_CHUNKS = 64
-EST_BYTES_PER_CHAR = SAMPLE_RATE * 2 / CHARS_PER_SECOND  # PCM16 mono WAV
+# Informational default (matches Kokoro's rate); the live estimate used by
+# _pick() reads the actual engine's sample_rate, since engines differ.
+EST_BYTES_PER_CHAR = 24000 * 2 / CHARS_PER_SECOND  # PCM16 mono WAV
 FILL_BUDGET_BYTES = CACHE_CAP_BYTES * 0.9
 FILL_MIN_SPEED = 4.0
 FILL_PROBE_S = 90.0
@@ -35,11 +37,13 @@ MAX_ATTEMPTS = 2
 
 class TTSWorker:
     def __init__(self, cache_dir: Path, engine,
+                 unavailable_wait: float = 5.0,
                  fill_min_speed: float = FILL_MIN_SPEED,
                  fill_probe_interval: float = FILL_PROBE_S):
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self._engine = engine
+        self._unavailable_wait = unavailable_wait
         self._fill_min_speed = fill_min_speed
         self._fill_probe_interval = fill_probe_interval
         self._speed = 0.0  # last measured generation speed, x realtime
@@ -47,21 +51,22 @@ class TTSWorker:
         self._cond = threading.Condition()
         self._chunks: list[Chunk] = []
         self._cids: list[str] = []
-        self._voice = ""
+        self._namespace = ""
         self._position = 0
         self._requests: list[str] = []
         self._attempts: dict[str, int] = {}
         self._failed: set[str] = set()
+        self._blocked: str | None = None
         self._events: dict[str, threading.Event] = {}
         self._thread = threading.Thread(target=self._run, daemon=True, name="tts-worker")
         self._thread.start()
 
     # -- public API (thread-safe) ------------------------------------------
-    def set_doc(self, chunks: list[Chunk], voice: str, position: int = 0) -> None:
+    def set_doc(self, chunks: list[Chunk], namespace: str, position: int = 0) -> None:
         with self._cond:
             self._chunks = list(chunks)
-            self._voice = voice
-            self._cids = [chunk_id(voice, c.text) for c in chunks]
+            self._namespace = namespace
+            self._cids = [chunk_id(namespace, c.text) for c in chunks]
             self._position = position
             self._requests.clear()
             self._attempts.clear()
@@ -97,7 +102,8 @@ class TTSWorker:
 
     def status(self) -> dict:
         with self._cond:
-            cids, failed = list(self._cids), set(self._failed)
+            cids, failed, blocked = list(self._cids), set(self._failed), self._blocked
+        sr = self._engine.sample_rate
         ready, durations = [], {}
         for c in cids:
             try:
@@ -105,12 +111,13 @@ class TTSWorker:
             except OSError:
                 continue
             ready.append(c)
-            # PCM_16 mono @ 24kHz behind a 44-byte WAV header
-            durations[c] = max(0, size - 44) / 48000.0
+            # PCM_16 mono behind a 44-byte WAV header
+            durations[c] = max(0, size - 44) / (sr * 2)
         return {
             "ready": ready,
             "failed": [c for c in cids if c in failed],
             "durations": durations,
+            "blocked": blocked,
         }
 
     # -- worker loop ---------------------------------------------------------
@@ -140,10 +147,11 @@ class TTSWorker:
             now = time.monotonic()
             if now - self._last_fill_probe < self._fill_probe_interval:
                 return None
+        est_bytes_per_char = self._engine.sample_rate * 2 / CHARS_PER_SECOND
         spent = 0.0
         for idx in chain(range(self._position, len(self._cids)),
                          range(0, self._position)):
-            spent += len(self._chunks[idx].text) * EST_BYTES_PER_CHAR
+            spent += len(self._chunks[idx].text) * est_bytes_per_char
             if spent > FILL_BUDGET_BYTES:
                 break
             cid = self._cids[idx]
@@ -162,22 +170,29 @@ class TTSWorker:
                     self._cond.wait(timeout=1.0)
                     continue
                 cid, text, urgent = job
-                voice = self._voice
+                namespace = self._namespace
                 self._attempts[cid] = self._attempts.get(cid, 0) + 1
             try:
+                sr = self._engine.sample_rate
                 start = time.monotonic()
-                audio = self._engine.synthesize(text, voice, urgent=urgent)
+                audio = self._engine.synthesize(text, namespace, urgent=urgent)
                 wall = time.monotonic() - start
                 tmp = self.path(cid).with_suffix(".tmp")
-                sf.write(tmp, audio, SAMPLE_RATE, format="WAV", subtype="PCM_16")
+                sf.write(tmp, audio, sr, format="WAV", subtype="PCM_16")
                 tmp.rename(self.path(cid))
                 self._enforce_cache_cap()
                 with self._cond:
-                    if wall >= 0.3 and len(audio) >= SAMPLE_RATE:
-                        self._speed = (len(audio) / SAMPLE_RATE) / wall
+                    if wall >= 0.3 and len(audio) >= sr:
+                        self._speed = (len(audio) / sr) / wall
                     self._attempts.pop(cid, None)
+                    self._blocked = None
                     if cid in self._events:
                         self._events[cid].set()
+            except EngineUnavailable as exc:
+                with self._cond:
+                    self._blocked = str(exc)
+                    self._attempts[cid] = self._attempts.get(cid, 1) - 1  # not an attempt
+                    self._cond.wait(timeout=self._unavailable_wait)
             except Exception:
                 log.exception("chunk %s failed (attempt %d)", cid[:8], self._attempts.get(cid, 0))
                 with self._cond:

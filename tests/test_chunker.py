@@ -43,10 +43,10 @@ def test_doc_id_stable_across_whitespace_noise():
     assert doc_id("Hello.") != doc_id("Goodbye.")
 
 
-def test_chunk_id_depends_on_voice_and_text():
-    assert chunk_id("af_heart", "Hi.") != chunk_id("am_adam", "Hi.")
-    assert chunk_id("af_heart", "Hi.") != chunk_id("af_heart", "Yo.")
-    assert chunk_id("af_heart", "Hi.") == chunk_id("af_heart", "Hi.")
+def test_chunk_id_depends_on_namespace_and_text():
+    assert chunk_id("kokoro\x002\x00af_heart", "Hi.") != chunk_id("kokoro\x002\x00am_adam", "Hi.")
+    assert chunk_id("ns", "Hi.") != chunk_id("ns", "Yo.")
+    assert chunk_id("ns", "Hi.") == chunk_id("ns", "Hi.")
 
 
 def test_quoted_dialogue_not_mangled():
