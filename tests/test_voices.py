@@ -44,3 +44,13 @@ def test_delete_and_fingerprint(tmp_path):
     assert len(store.fingerprint(voice.id)) == 40             # full sha1
     assert store.delete(voice.id) is True
     assert store.voices() == [] and store.delete(voice.id) is False
+
+
+def test_malformed_ids_cannot_escape_store_dir(tmp_path):
+    store = CloneStore(tmp_path)
+    evil = "clone:../../etc/passwd"
+    assert store.has(evil) is False
+    assert store.delete(evil) is False
+    with pytest.raises(CloneError, match="malformed"):
+        store.ref_path(evil)
+    assert store.has("no-prefix") is False

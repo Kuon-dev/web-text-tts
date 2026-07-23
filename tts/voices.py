@@ -2,6 +2,7 @@
 import hashlib
 import io
 import json
+import re
 import shutil
 import time
 from pathlib import Path
@@ -11,6 +12,7 @@ import soundfile as sf
 from .base import Voice
 
 MIN_SECONDS, MAX_SECONDS = 3.0, 30.0
+_ID_RE = re.compile(r"[0-9a-f]{12}")
 
 
 class CloneError(ValueError):
@@ -23,7 +25,10 @@ class CloneStore:
         self.dir.mkdir(parents=True, exist_ok=True)
 
     def _dir(self, voice_id: str) -> Path:
-        return self.dir / voice_id.removeprefix("clone:")
+        suffix = voice_id.removeprefix("clone:")
+        if not _ID_RE.fullmatch(suffix):
+            raise CloneError(f"malformed clone id: {voice_id!r}")
+        return self.dir / suffix
 
     def add(self, data: bytes, name: str, language: str = "en") -> Voice:
         try:
@@ -53,7 +58,12 @@ class CloneStore:
         return out
 
     def has(self, voice_id: str) -> bool:
-        return voice_id.startswith("clone:") and (self._dir(voice_id) / "meta.json").exists()
+        if not voice_id.startswith("clone:"):
+            return False
+        try:
+            return (self._dir(voice_id) / "meta.json").exists()
+        except CloneError:
+            return False
 
     def ref_path(self, voice_id: str) -> Path:
         return self._dir(voice_id) / "ref.wav"
