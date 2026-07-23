@@ -293,3 +293,14 @@ your Kokoro voice.
   the pause UX proves annoying in practice.
 - Streaming synthesis (Qwen3 supports it; the chunk-WAV architecture doesn't need it).
 - Per-voice or per-paragraph instruct.
+
+## Addendum: benchmark status (2026-07-23)
+
+Task 1's measurements are DEFERRED — no CUDA box was reachable from this
+session. `scripts/bench_qwen.py` is committed and ready. pip dependency
+resolution for `qwen-tts` alongside `kokoro` succeeded with no version conflicts
+(qwen-tts 0.1.1 and kokoro 0.7.16 coexist; qwen-tts requires torch via torchaudio
+and transformers==4.57.3, kokoro requires torch with no version pin). Blockers
+this leaves open (reconciled by Task 12 on the 4060 box): measured sample rate
+(engine assumes 24000), x-realtime, peak VRAM, load time, and the exact
+voice-clone call signature (engine implements the documented `generate_voice_clone`).

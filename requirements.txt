@@ -1,4 +1,5 @@
 kokoro>=0.9
+qwen-tts
 torch
 numpy
 soundfile
