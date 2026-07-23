@@ -2,13 +2,14 @@ import { useSyncExternalStore } from "react"
 import {
   api,
   audioUrl,
+  getVoices,
   type Chunk,
+  type DeviceMode,
   type Doc,
   type EngineInfo,
-  type EngineMode,
   type ImageRef,
   type Status,
-  type VoicesResponse,
+  type Voice,
 } from "./api"
 
 export interface PlayerSnapshot {
@@ -23,8 +24,10 @@ export interface PlayerSnapshot {
   volume: number
   muted: boolean
   voice: string
-  voices: string[]
+  voices: Voice[]
+  instruct: string
   engine: EngineInfo | null
+  blocked: string | null
 }
 
 const RETRY_MS = 2000
@@ -47,8 +50,10 @@ class PlayerEngine {
   private durations: Record<string, number> = {}
   private playToken = 0
   private saveTimer: ReturnType<typeof setTimeout> | undefined
-  private voices: string[] = []
+  private voices: Voice[] = []
+  private instructText = ""
   private engine: EngineInfo | null = null
+  private blocked: string | null = null
   private started = false
   private listeners = new Set<() => void>()
   private snap: PlayerSnapshot
@@ -84,7 +89,9 @@ class PlayerEngine {
       muted: this.muted,
       voice: this.doc.voice,
       voices: this.voices,
+      instruct: this.instructText,
       engine: this.engine,
+      blocked: this.blocked,
     }
   }
 
@@ -98,9 +105,18 @@ class PlayerEngine {
   }
 
   private async loadVoices() {
-    const v = await api<VoicesResponse>("/api/voices")
+    const v = await getVoices()
     this.voices = v.voices
     this.emit()
+  }
+
+  /** Re-fetch the voice list for the active engine (after a clone add/delete). */
+  async refreshVoices() {
+    try {
+      await this.loadVoices()
+    } catch {
+      /* keep the stale list; next poll-driven action can retry */
+    }
   }
 
   private async loadDoc(fresh?: Doc) {
@@ -118,6 +134,7 @@ class PlayerEngine {
     try {
       const s = await api<Status>("/api/status")
       if (s.engine) this.engine = s.engine
+      this.blocked = s.blocked
       if (s.doc_id !== this.doc.doc_id) {
         this.audio.pause()
         this.playing = false
@@ -242,7 +259,7 @@ class PlayerEngine {
   }
 
   /** Returns true on success; false means the change failed and was rolled back. */
-  async setEngineMode(mode: EngineMode): Promise<boolean> {
+  async setDeviceMode(mode: DeviceMode): Promise<boolean> {
     const previous = this.engine
     if (this.engine) {
       // optimistic; the 2s status poll corrects `active`/`speed` shortly
@@ -250,10 +267,46 @@ class PlayerEngine {
       this.emit()
     }
     try {
-      await api("/api/state", { engine: mode })
+      await api("/api/state", { device_mode: mode })
       return true
     } catch {
       this.engine = previous
+      this.emit()
+      return false
+    }
+  }
+
+  /** Returns true on success; false means the switch failed (rejected atomically, nothing changed). */
+  async setEngine(id: string): Promise<boolean> {
+    try {
+      const r = await api<{ rechunked: boolean }>("/api/state", { engine: id })
+      if (r.rechunked) {
+        const keep = this.idx
+        await this.loadDoc()
+        this.jump(keep)
+      }
+      await this.refreshVoices()  // the new engine has its own voice set
+      this.emit()
+      return true
+    } catch {
+      this.emit()
+      return false
+    }
+  }
+
+  /** Returns true on success; false means the change failed (rejected atomically, nothing changed). */
+  async setInstruct(text: string): Promise<boolean> {
+    try {
+      const r = await api<{ rechunked: boolean }>("/api/state", { instruct: text })
+      this.instructText = text
+      if (r.rechunked) {
+        const keep = this.idx
+        await this.loadDoc()
+        this.jump(keep)
+      }
+      this.emit()
+      return true
+    } catch {
       this.emit()
       return false
     }

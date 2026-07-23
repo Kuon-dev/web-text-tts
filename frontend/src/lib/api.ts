@@ -21,12 +21,30 @@ export interface Doc {
   images?: ImageRef[]
 }
 
-export type EngineMode = "auto" | "gpu" | "cpu"
+export type DeviceMode = "auto" | "gpu" | "cpu"
+
+export interface Voice {
+  id: string
+  name: string
+  group: string
+  language: string
+}
+
+export interface EngineEntry {
+  id: string
+  label: string
+  available: boolean
+  reason: string | null
+  supported_modes: DeviceMode[]
+}
 
 export interface EngineInfo {
-  mode: EngineMode
+  engine: string
+  label: string
+  mode: DeviceMode
   active: "gpu" | "cpu"
   gpu_available: boolean
+  cold: boolean
   speed: number
 }
 
@@ -36,28 +54,30 @@ export interface Status {
   failed: string[]
   /** seconds of audio per ready chunk id */
   durations?: Record<string, number>
+  blocked: string | null
   engine?: EngineInfo
 }
 
-export interface VoicesResponse {
-  voices: string[]
-  current: string
-}
-
-export async function api<T>(path: string, body?: unknown): Promise<T> {
-  const resp = await fetch(
-    path,
-    body === undefined
-      ? {}
-      : {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(body),
-        },
-  )
+export async function api<T>(path: string, body?: unknown, method?: string, raw?: boolean): Promise<T> {
+  const init: RequestInit = {}
+  if (method) init.method = method
+  if (body !== undefined) {
+    init.method = method ?? "POST"
+    init.body = raw ? (body as BodyInit) : JSON.stringify(body)
+    if (!raw) init.headers = { "Content-Type": "application/json" }
+  }
+  const resp = await fetch(path, init)
   if (!resp.ok) throw new Error(`${path}: ${resp.status}`)
   return resp.json() as Promise<T>
 }
+
+export const getEngines = () => api<{ engines: EngineEntry[]; current: string }>("/api/engines")
+export const getVoices = () => api<{ voices: Voice[]; current: string }>("/api/voices")
+export const uploadClone = (name: string, data: ArrayBuffer) =>
+  api<{ voice: Voice }>(`/api/voices/clone?name=${encodeURIComponent(name)}`, data, "POST", true)
+export const deleteClone = (id: string) =>
+  api<{ ok: boolean }>(`/api/voices/${encodeURIComponent(id)}`, undefined, "DELETE")
+export const voiceLabel = (v: Voice) => `${v.name} · ${v.group}`
 
 export const audioUrl = (cid: string) => `/api/audio/${cid}`
 
@@ -78,24 +98,3 @@ export async function uploadImage(blob: Blob): Promise<ImageInfo> {
 
 /** Ask the server to download an image URL from a pasted chapter. */
 export const importImageUrl = (url: string) => api<ImageInfo>("/api/image/fetch", { url })
-
-/** "af_heart" -> "Heart · US female" */
-export function voiceLabel(id: string): string {
-  const m = /^([ab])([fm])_(.+)$/.exec(id)
-  if (!m) return id
-  return `${voiceName(id)} · ${voiceGroup(id)}`
-}
-
-/** "af_heart" -> "US female"; unparsable ids -> "Other" */
-export function voiceGroup(id: string): string {
-  const m = /^([ab])([fm])_/.exec(id)
-  if (!m) return "Other"
-  return `${m[1] === "a" ? "US" : "UK"} ${m[2] === "f" ? "female" : "male"}`
-}
-
-/** "af_heart" -> "Heart" */
-export function voiceName(id: string): string {
-  const m = /^[ab][fm]_(.+)$/.exec(id)
-  const name = m ? m[1] : id
-  return name.charAt(0).toUpperCase() + name.slice(1)
-}

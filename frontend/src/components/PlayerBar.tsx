@@ -96,11 +96,14 @@ function TimeDisplay({ playing, hasChunks }: { playing: boolean; hasChunks: bool
 }
 
 export function PlayerBar() {
-  const { chunks, idx, playing, speed, volume, muted, voice, voices, engine } = usePlayer()
+  const { chunks, idx, playing, speed, volume, muted, voice, voices, engine, ready, failed, blocked } = usePlayer()
   const n = chunks.length
   const pct = n ? ((idx + 1) / n) * 100 : 0
   const effectiveVolume = muted ? 0 : volume
   const volState = effectiveVolume === 0 ? "muted" : effectiveVolume < 0.5 ? "low" : "high"
+  const currentChunk = n ? chunks[idx] : undefined
+  const waiting = playing && !!currentChunk && !ready.has(currentChunk.id) && !failed.has(currentChunk.id)
+  const statusLine = blocked ? "paused — GPU busy (Qwen3 has no CPU mode)" : engine?.cold && waiting ? "loading model…" : null
 
   const scrub = (e: MouseEvent<HTMLDivElement>) => {
     if (!n) return
@@ -139,6 +142,9 @@ export function PlayerBar() {
           />
         </m.div>
       </div>
+      {statusLine && (
+        <div className="px-3 pt-1.5 text-center text-xs text-muted-foreground">{statusLine}</div>
+      )}
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-3 py-2">
         <div className="flex items-center gap-2">
           <VoiceCombobox voice={voice} voices={voices} className="max-sm:w-28" />

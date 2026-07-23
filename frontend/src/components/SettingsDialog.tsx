@@ -10,6 +10,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import {
   Select,
@@ -25,6 +26,7 @@ import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
 import { EngineModeList } from "@/components/EngineModePicker"
 import { VoiceCombobox } from "@/components/VoiceCombobox"
+import { uploadClone } from "@/lib/api"
 import {
   FONT_GROUPS,
   FONT_HINTS,
@@ -47,7 +49,7 @@ import {
   type ThemeMode,
   type ThemePrefs,
 } from "@/lib/theme"
-import { usePlayer } from "@/lib/player"
+import { player, usePlayer } from "@/lib/player"
 import { cn } from "@/lib/utils"
 import type { WallpaperInfo } from "@/lib/wallpaper"
 
@@ -229,8 +231,9 @@ function WallpaperSection({
 }
 
 export function SettingsDialog({ prefs, update, theme, dark, updateTheme, reset, wallpaper, uploadWallpaper, removeWallpaper }: Props) {
-  const { voice, voices, engine } = usePlayer()
+  const { voice, voices, engine, instruct } = usePlayer()
   const previewMode = dark ? "dark" : "light"
+  const isQwen3 = engine?.engine === "qwen3"
 
   return (
     <Dialog>
@@ -397,6 +400,44 @@ export function SettingsDialog({ prefs, update, theme, dark, updateTheme, reset,
                 <VoiceCombobox voice={voice} voices={voices} className="w-full" />
               </div>
               <EngineModeList engine={engine} />
+              {isQwen3 && (
+                <>
+                  <div className="space-y-2">
+                    <Label htmlFor="instruct">Style instruction</Label>
+                    <Input
+                      id="instruct"
+                      placeholder='e.g. "read calmly, slightly tired"'
+                      defaultValue={instruct}
+                      onBlur={(e) => {
+                        if (e.target.value !== instruct) void player.setInstruct(e.target.value)
+                      }}
+                    />
+                    <p className="text-xs text-muted-foreground">Applies to preset voices; changing it regenerates audio.</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="clone-upload">Clone a voice</Label>
+                    <Input
+                      id="clone-upload"
+                      type="file"
+                      accept="audio/*"
+                      onChange={async (e) => {
+                        const f = e.target.files?.[0]
+                        e.target.value = ""
+                        if (!f) return
+                        const name = f.name.replace(/\.[^.]+$/, "")
+                        try {
+                          await uploadClone(name, await f.arrayBuffer())
+                          await player.refreshVoices()
+                          toast.success(`Voice "${name}" added`)
+                        } catch (err) {
+                          toast.error(err instanceof Error ? err.message : "Upload failed")
+                        }
+                      }}
+                    />
+                    <p className="text-xs text-muted-foreground">3-30s clip of one speaker (wav/flac/ogg).</p>
+                  </div>
+                </>
+              )}
             </Section>
           </div>
         </div>
