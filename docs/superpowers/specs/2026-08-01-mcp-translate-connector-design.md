@@ -48,7 +48,7 @@ and so a missing SDK degrades to "no `/mcp` route" instead of a boot failure.
 agent → fetch_page(url) ───► download, extract, import images, return text
         (agent translates)
 agent → load_text(text) ───► novel.txt written · rechunk · worker.set_doc
-                             ↓  browser polls /api/status every 1s
+                             ↓  browser polls /api/status every 2s
                              open page sees a new doc_id, reloads, audio generates
 ```
 
@@ -108,13 +108,34 @@ progress back, instead of guessing.
 
 ## Concurrency
 
-Every document mutation takes `st.lock`, exactly as the HTTP handlers do. MCP tools run
-on the event loop, and `load_doc` does file IO, chunking and a worker handoff — so each
-tool is `async def` with its blocking body in `await asyncio.to_thread(...)`. `fetch_page`
-does network IO and is offloaded the same way.
+Every document mutation takes `st.lock`, exactly as the HTTP handlers do.
+
+Tools are plain `def`, not `async def`: the MCP SDK dispatches a synchronous tool body
+on an AnyIO worker thread (verified against `mcp` 2.0.0), so blocking work — the page
+download, chunking, the worker handoff — never occupies the event loop. This mirrors
+how FastAPI already treats the sync endpoints in `server.py`.
 
 `get_status` follows `GET /api/status` and reads without the lock: it must not freeze
-behind a multi-second engine swap, and the fields it reads are rebound atomically.
+behind a multi-second engine swap, and the fields it reads are rebound atomically. It
+reads the voice out of `state["voices"]` directly rather than calling `AppState.voice()`,
+which would mutate state.
+
+## Mounting
+
+`streamable_http_app(streamable_http_path="/mcp", json_response=True, stateless_http=True)`
+returns a Starlette app whose routes are copied onto the FastAPI router
+(`app.router.routes.extend(sub.routes)`). Mounting it as a sub-app instead would answer
+`POST /mcp` with a 307 to `/mcp/` — verified, and a redirect on POST is exactly the kind
+of thing that breaks a client mid-handshake. Copying the route serves `/mcp` directly.
+
+The sub-app's own lifespan is never run in this arrangement, so `create_app`'s existing
+lifespan enters `session_manager.run()` itself. `session_manager` raises if touched
+before `streamable_http_app()` has been called, so the app is built at `create_app` time
+and only entered at startup.
+
+The SDK auto-enables DNS-rebinding protection for a `127.0.0.1` host, accepting Host
+headers matching `127.0.0.1:*` / `localhost:*`. Tests must therefore address the ASGI
+app with an explicit port.
 
 ## Frontend
 
