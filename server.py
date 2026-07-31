@@ -1,5 +1,6 @@
 """FastAPI app: doc/state/status/audio/wallpaper API + static player, novel.txt mtime polling."""
 import asyncio
+import contextlib
 import hashlib
 import json
 import logging
@@ -183,10 +184,24 @@ def create_app(data_dir: Path, worker, audio_wait: float = 30.0, *, manager,
     with st.lock:
         st.load_doc()
 
+    def _build_mcp():
+        """The MCP connector, or None when the `mcp` package isn't installed."""
+        try:
+            from mcp_app import build_mcp
+        except ImportError:
+            log.warning("mcp package not installed - /mcp connector disabled")
+            return None
+        return build_mcp(st)
+
+    mcp_server = _build_mcp()
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         task = asyncio.create_task(_poll_file())
-        yield
+        async with contextlib.AsyncExitStack() as stack:
+            if mcp_server is not None:
+                await stack.enter_async_context(mcp_server.session_manager.run())
+            yield
         task.cancel()
 
     def _check_reload():
@@ -405,6 +420,14 @@ def create_app(data_dir: Path, worker, audio_wait: float = 30.0, *, manager,
         if event.wait(audio_wait) and worker.path(cid).exists():
             return FileResponse(worker.path(cid), media_type="audio/wav", headers=headers)
         raise HTTPException(503, "audio not ready, retry")
+
+    if mcp_server is not None:
+        # Copy the route rather than app.mount(): a mounted sub-app answers
+        # POST /mcp with a 307 to /mcp/, and a redirect mid-handshake is exactly
+        # what an MCP client handles worst.
+        sub = mcp_server.streamable_http_app(
+            streamable_http_path="/mcp", json_response=True, stateless_http=True)
+        app.router.routes.extend(sub.routes)
 
     return app
 
