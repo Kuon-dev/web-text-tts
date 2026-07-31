@@ -144,9 +144,21 @@ class PlayerEngine {
       if (s.engine) this.engine = s.engine
       this.blocked = s.blocked
       if (s.doc_id !== this.doc.doc_id) {
-        this.audio.pause()
-        this.playing = false
+        // An agent appending a page mints a new doc_id, but the chunk being
+        // spoken survives with the same id (and the same audio URL) — so
+        // re-index and keep playing instead of stopping mid-sentence.
+        const keepCid = this.playing ? this.doc.chunks[this.idx]?.id : undefined
         await this.loadDoc()
+        const kept = keepCid ? this.doc.chunks.findIndex((c) => c.id === keepCid) : -1
+        if (kept >= 0) {
+          this.idx = kept
+          this.playing = true
+          this.emit()
+        } else {
+          this.audio.pause()
+          this.playing = false
+          this.emit()
+        }
       } else {
         this.ready = new Set(s.ready)
         if (s.durations) this.durations = s.durations
