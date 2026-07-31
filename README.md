@@ -33,6 +33,22 @@ for cloning).
 - **Voice cloning** (settings, 3–30s audio clip): Upload a reference clip in
   settings; the cloned voice appears in the combobox under "Cloned".
 
+## MCP connector (translate a website into the reader)
+
+With the server running, an AI agent can fetch a page, translate it, and load the
+translation for the TTS to read:
+
+    claude mcp add --transport http novel-tts http://localhost:8765/mcp
+
+Tools: `fetch_page(url)` (the page's chapter text — nav/ads/footers stripped,
+illustrations imported as `[img:…]` markers), `load_text(text)` (replaces the
+document), `append_text(text)` (adds the next page, keeping your place *and*
+playback), `get_status()` (position, engine, voice, what has audio yet).
+
+The agent does the translating — no API key, and the server sends nothing anywhere
+except the page fetch itself. A load lands in the open browser within a couple of
+seconds. If `mcp` isn't installed the reader still runs, just without `/mcp`.
+
 ## Dev
 
     .venv/bin/pytest -m "not slow"    # fast suite (runs without torch/qwen-tts)
