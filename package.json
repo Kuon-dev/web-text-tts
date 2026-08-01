@@ -1,0 +1,5 @@
+{
+  "name": "novel-tts",
+  "private": true,
+  "workspaces": ["frontend", "desktop"]
+}

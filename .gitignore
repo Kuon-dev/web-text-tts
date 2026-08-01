@@ -8,3 +8,7 @@ frontend/node_modules/
 wallpaper
 images/
 voices/
+node_modules/
+desktop/dist/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
