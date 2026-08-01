@@ -48,8 +48,19 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| match event {
-            tauri::RunEvent::ExitRequested { .. } => backend::teardown::shutdown(app),
-            tauri::RunEvent::Exit => backend::teardown::shutdown(app),
+            // Cmd+Q on macOS never fires WindowEvent::CloseRequested (the
+            // path install_close_flush hooks) - it goes straight through
+            // this handler instead, so the position flush has to happen
+            // here too, before the backend teardown that follows it. See
+            // flush_position_on_exit's doc comment.
+            tauri::RunEvent::ExitRequested { .. } => {
+                window::flush_position_on_exit(app);
+                backend::teardown::shutdown(app);
+            }
+            tauri::RunEvent::Exit => {
+                window::flush_position_on_exit(app);
+                backend::teardown::shutdown(app);
+            }
             _ => {}
         });
 }
