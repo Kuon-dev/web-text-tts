@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react"
 import {
   api,
+  apiUrl,
   audioUrl,
   getVoices,
   type Chunk,
@@ -387,9 +388,21 @@ class PlayerEngine {
 
   private savePosition() {
     clearTimeout(this.saveTimer)
-    this.saveTimer = setTimeout(() => {
-      api("/api/state", { position: this.idx }).catch(() => {})
-    }, SAVE_DEBOUNCE_MS)
+    this.saveTimer = setTimeout(() => this.flushPosition(), SAVE_DEBOUNCE_MS)
+  }
+
+  /** Persist the position right now, cancelling any pending debounce.
+   *  `keepalive` lets the request outlive a webview teardown — WKWebView and
+   *  WebView2 do not reliably run beforeunload, so without this a quit
+   *  mid-chapter loses up to SAVE_DEBOUNCE_MS of progress. */
+  flushPosition() {
+    clearTimeout(this.saveTimer)
+    fetch(apiUrl("/api/state"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ position: this.idx }),
+      keepalive: true,
+    }).catch(() => {})
   }
 }
 
