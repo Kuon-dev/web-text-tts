@@ -1,4 +1,5 @@
 import json
+import re
 import threading
 from pathlib import Path
 
@@ -7,7 +8,7 @@ import soundfile as sf
 from fastapi.testclient import TestClient
 
 from chunker import chunk_id
-from server import create_app, migrate_state
+from server import STATIC_DIR, create_app, migrate_state
 from tts.base import Voice
 
 
@@ -467,6 +468,23 @@ def test_clone_upload_and_delete(tmp_path):
         assert client.post("/api/voices/clone?name=X", content=b"junk").status_code == 400
         assert client.delete(f"/api/voices/{vid}").status_code == 200
         assert client.delete(f"/api/voices/{vid}").status_code == 404
+
+
+def test_index_html_root_relative_assets_all_resolve(tmp_path):
+    """Regression for the theme-boot.js 404: every root-relative src/href
+    static/index.html references must actually be served by this app, not
+    just the /assets bundle. This is the FOUC bug's exact class of gap -
+    the served page and the routes that exist are checked against each
+    other instead of independently."""
+    html = (STATIC_DIR / "index.html").read_text()
+    paths = set(re.findall(r'(?:src|href)="(/[^"]+)"', html))
+    assert paths, "expected index.html to reference at least one root-relative asset"
+
+    app, _, _ = make_app(tmp_path)
+    with TestClient(app) as client:
+        for path in paths:
+            resp = client.get(path)
+            assert resp.status_code == 200, f"{path} returned {resp.status_code}"
 
 
 def test_save_state_is_atomic(tmp_path):

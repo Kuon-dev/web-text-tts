@@ -257,6 +257,15 @@ def create_app(data_dir: Path, worker, audio_wait: float = 30.0, *, manager,
     def index():
         return FileResponse(STATIC_DIR / "index.html")
 
+    # Task 3 moved the pre-paint theme IIFE out of index.html into its own
+    # file so it can be shared verbatim by the Tauri shell's index.html. Vite
+    # dev and Tauri both serve public/ at the root for free; this server does
+    # not have a catch-all, so the route needs to exist explicitly or every
+    # `python server.py` load flashes the wrong theme until the bundle parses.
+    @app.get("/theme-boot.js")
+    def theme_boot():
+        return FileResponse(STATIC_DIR / "theme-boot.js", media_type="text/javascript")
+
     @app.get("/api/doc")
     def get_doc():
         with st.lock:
