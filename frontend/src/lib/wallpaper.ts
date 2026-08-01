@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react"
+import { apiUrl } from "./api"
 
 export interface WallpaperInfo {
   id: string
@@ -8,14 +9,14 @@ export interface WallpaperInfo {
 }
 
 /** The id doubles as a cache-buster: the server serves the bytes immutable. */
-export const wallpaperUrl = (info: WallpaperInfo) => `/api/wallpaper?v=${info.id}`
+export const wallpaperUrl = (info: WallpaperInfo) => apiUrl(`/api/wallpaper?v=${info.id}`)
 
 export function useWallpaper() {
   const [wallpaper, setWallpaper] = useState<WallpaperInfo | null>(null)
 
   useEffect(() => {
     let alive = true
-    fetch("/api/wallpaper/info")
+    fetch(apiUrl("/api/wallpaper/info"))
       .then((r) => (r.ok ? r.json() : null))
       .then((j) => {
         if (alive && j) setWallpaper(j.wallpaper ?? null)
@@ -30,7 +31,7 @@ export function useWallpaper() {
 
   const upload = useCallback(async (file: Blob): Promise<boolean> => {
     try {
-      const resp = await fetch("/api/wallpaper", { method: "POST", body: file })
+      const resp = await fetch(apiUrl("/api/wallpaper"), { method: "POST", body: file })
       if (!resp.ok) return false
       setWallpaper((await resp.json()).wallpaper)
       return true
@@ -41,7 +42,7 @@ export function useWallpaper() {
 
   const remove = useCallback(async (): Promise<boolean> => {
     try {
-      const resp = await fetch("/api/wallpaper", { method: "DELETE" })
+      const resp = await fetch(apiUrl("/api/wallpaper"), { method: "DELETE" })
       if (!resp.ok) return false
       setWallpaper(null)
       return true
