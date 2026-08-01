@@ -90,7 +90,31 @@ impl BackendChild {
         logs: Arc<Mutex<VecDeque<LogLine>>>,
     ) {
         std::thread::spawn(move || {
-            for line in BufReader::new(reader).lines().map_while(Result::ok) {
+            // Read raw bytes rather than `BufRead::lines()`: `lines()` yields
+            // an `Err` for a line that isn't valid UTF-8, and iterator
+            // adapters like `map_while`/`take_while` stop on the first `Err`
+            // - one stray byte (e.g. in a Python traceback) would silently
+            // end log capture for the rest of the child's life, and stop
+            // draining the OS pipe, which can eventually block the child's
+            // writes. Decoding lossily keeps the reader going no matter what
+            // bytes show up, at the cost of `\u{FFFD}` in place of bad bytes.
+            let mut reader = BufReader::new(reader);
+            let mut buf = Vec::new();
+            loop {
+                buf.clear();
+                match reader.read_until(b'\n', &mut buf) {
+                    Ok(0) => return, // EOF
+                    Ok(_) => {}
+                    Err(_) => return, // real I/O error on the pipe
+                }
+                if buf.last() == Some(&b'\n') {
+                    buf.pop();
+                    if buf.last() == Some(&b'\r') {
+                        buf.pop();
+                    }
+                }
+                let text = String::from_utf8_lossy(&buf).into_owned();
+
                 let mut guard = match logs.lock() {
                     Ok(g) => g,
                     Err(_) => return,
@@ -98,7 +122,7 @@ impl BackendChild {
                 if guard.len() == LOG_RING_CAPACITY {
                     guard.pop_front();
                 }
-                guard.push_back(LogLine { stream: stream.to_string(), text: line });
+                guard.push_back(LogLine { stream: stream.to_string(), text });
             }
         });
     }
@@ -212,5 +236,43 @@ mod tests {
             std::thread::sleep(Duration::from_millis(100));
         }
         panic!("child survived kill_tree");
+    }
+
+    #[test]
+    fn kill_tree_escalates_to_sigkill_when_sigterm_is_ignored() {
+        // `sleep 30` above dies on the initial SIGTERM and never exercises
+        // the SIGKILL escalation path. This child ignores TERM (and the
+        // ignore-disposition is inherited by the backgrounded `sleep` across
+        // fork/exec), so kill_tree must fall through to SIGKILL after the
+        // grace window. Necessarily takes ~2s (the grace window) — do not
+        // shorten the production grace period just to speed this up.
+        let mut child =
+            BackendChild::spawn(&echo_spec("trap '' TERM; sleep 30 & wait")).unwrap();
+        child.kill_tree();
+        for _ in 0..50 {
+            if child.try_wait().is_some() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        panic!("child survived kill_tree escalation to SIGKILL");
+    }
+
+    #[test]
+    fn a_bad_byte_does_not_truncate_the_stream() {
+        // A stray non-UTF-8 byte (e.g. inside a Python traceback) must not
+        // silently end log capture for the rest of the child's life -
+        // that's exactly when log_tail's failure display matters most.
+        let child = BackendChild::spawn(&echo_spec(
+            "printf 'good1\\n'; printf '\\377\\377\\377\\n'; printf 'good2\\n'",
+        ))
+        .unwrap();
+        std::thread::sleep(Duration::from_millis(400));
+        let logs = child.logs();
+        assert!(logs.iter().any(|l| l.text.contains("good1")));
+        assert!(
+            logs.iter().any(|l| l.text.contains("good2")),
+            "line after the bad byte was dropped: {logs:?}"
+        );
     }
 }
