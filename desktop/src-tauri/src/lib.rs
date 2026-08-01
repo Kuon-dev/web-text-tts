@@ -1,3 +1,4 @@
+pub mod settings;
 mod window;
 
 use tauri::Manager;
