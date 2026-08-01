@@ -65,3 +65,35 @@ def test_same_origin_web_app_unaffected(tmp_path):
     """No Origin header (the web app's own requests) still works normally."""
     r = _client(tmp_path).get("/api/engines")
     assert r.status_code == 200
+
+
+def test_hostile_origin_gets_no_allow_origin_header(tmp_path):
+    """A plainly unrelated origin must not be echoed back. The request is
+    still served (Starlette doesn't block it server-side) - the browser is
+    what enforces same-origin policy once the header is absent."""
+    r = _client(tmp_path).get("/api/engines", headers={"Origin": "https://evil.com"})
+    assert "access-control-allow-origin" not in r.headers
+
+
+def test_localhost_regex_anchoring_rejects_subdomain_suffix_bypass(tmp_path):
+    """`localhost` must be the whole host, not a suffix match: a hostile
+    domain like localhost.evil.com must not slip through an unanchored or
+    loosely-anchored allow_origin_regex."""
+    r = _client(tmp_path).get(
+        "/api/engines", headers={"Origin": "http://localhost.evil.com"})
+    assert "access-control-allow-origin" not in r.headers
+
+
+def test_127_0_0_1_regex_anchoring_rejects_suffix_bypass(tmp_path):
+    """Same anchoring requirement for the 127.0.0.1 alternative."""
+    r = _client(tmp_path).get(
+        "/api/engines", headers={"Origin": "http://127.0.0.1.attacker.net"})
+    assert "access-control-allow-origin" not in r.headers
+
+
+def test_null_origin_rejected(tmp_path):
+    """Locks in the removal of "null" from DESKTOP_ORIGINS: Origin: null is
+    forgeable from any sandboxed iframe or data: URI navigation, so it must
+    never be echoed back, even though it was previously allow-listed."""
+    r = _client(tmp_path).get("/api/engines", headers={"Origin": "null"})
+    assert "access-control-allow-origin" not in r.headers

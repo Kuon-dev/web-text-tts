@@ -31,8 +31,10 @@ _ENGINE_DEFAULT_VOICE = {"kokoro": "af_heart", "qwen3": "Ryan"}
 # Origins the Tauri desktop shell can present. Starlette matches allow_origins
 # by EXACT STRING, so the custom scheme has to be listed literally — a
 # wildcard pattern will not match `tauri://localhost`.
+# Deliberately NOT "null": that Origin is forgeable from any sandboxed iframe
+# or data: URI, which would let any page the user visits reach these routes.
 DESKTOP_ORIGINS = ["tauri://localhost", "http://tauri.localhost",
-                   "https://tauri.localhost", "null"]
+                   "https://tauri.localhost"]
 
 
 def migrate_state(loaded: dict) -> dict:
