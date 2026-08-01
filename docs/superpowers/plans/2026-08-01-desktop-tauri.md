@@ -1658,11 +1658,37 @@ pub fn http_get_json(
 /// engine_id as a plain property), so it cannot block behind an in-flight
 /// synthesize. /api/doc and /api/voices both take st.lock; /api/audio blocks
 /// for up to 30s.
+/// Maps a failed connect attempt's `io::ErrorKind` to a `Probe`.
+///
+/// Classify on the error's REASON, never its phase. Only ConnectionRefused
+/// means "nothing is listening". A connect that times out, is blocked by a
+/// loopback-intercepting firewall, or hits a full accept backlog is an
+/// OCCUPIED port — calling it Free would spawn a second server onto it. The
+/// asymmetry matters: Foreign-when-free merely wastes a port, but
+/// Free-when-occupied collides.
+///
+/// Pure over `io::ErrorKind` so it can be unit-tested directly — provoking a
+/// real TimedOut socket is impractical.
+fn classify_connect_error(kind: std::io::ErrorKind) -> Probe {
+    match kind {
+        std::io::ErrorKind::ConnectionRefused => Probe::Free,
+        _ => Probe::Foreign,
+    }
+}
+
 pub fn probe(port: u16) -> Probe {
-    let value = match http_get_json(port, "/api/engines", READ_TIMEOUT) {
+    // probe owns its connect so the raw io::ErrorKind reaches the decision
+    // point without ever collapsing to a string. http_get_json keeps its
+    // Result<Value, String> signature for Task 12's readiness polling; both
+    // share a `request_over(sock, ...)` helper for everything after connect.
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let sock = match TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT) {
+        Ok(s) => s,
+        Err(e) => return classify_connect_error(e.kind()),
+    };
+    let value = match request_over(sock, port, "/api/engines", READ_TIMEOUT) {
         Ok(v) => v,
-        Err(e) if e.starts_with("connect:") => return Probe::Free,
-        Err(_) => return Probe::Foreign,
+        Err(_) => return Probe::Foreign,   // write/read/parse/non-200
     };
     if is_novel_tts(&value) {
         Probe::NovelTts
