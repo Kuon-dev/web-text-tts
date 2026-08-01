@@ -571,7 +571,7 @@ Expected: PASS, 7 tests.
 - [ ] **Step 5: Verify no regression**
 
 Run: `.venv/bin/pytest -m "not slow" -q`
-Expected: `190 passed, 1 failed, 2 deselected` — the same single pre-existing `test_romaji` failure and nothing else.
+Expected: `194 passed, 1 failed, 2 deselected` — the same single pre-existing `test_romaji` failure and nothing else.
 
 - [ ] **Step 6: Verify the web app still works unchanged**
 
@@ -753,7 +753,7 @@ Expected: PASS, 5 tests.
 - [ ] **Step 6: Verify no regression and that the old entry point is unchanged**
 
 Run: `.venv/bin/pytest -m "not slow" -q`
-Expected: `195 passed, 1 failed, 2 deselected`.
+Expected: `199 passed, 1 failed, 2 deselected`.
 
 Then confirm the no-flags entry point — the one `start.sh` uses — still serves on the original port with the original data dir:
 
@@ -3243,7 +3243,7 @@ In `server.py`, replace `AppState.save_state`:
 - [ ] **Step 4: Run the full suite**
 
 Run: `.venv/bin/pytest -m "not slow" -q`
-Expected: `196 passed, 1 failed, 2 deselected` — the same single pre-existing `test_romaji` failure.
+Expected: `200 passed, 1 failed, 2 deselected` — the same single pre-existing `test_romaji` failure.
 
 - [ ] **Step 5: Document the desktop app in `README.md`**
 
