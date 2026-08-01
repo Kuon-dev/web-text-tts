@@ -111,7 +111,11 @@ class AppState:
                 log.warning("state.json unreadable, starting fresh")
 
     def save_state(self):
-        self.state_path.write_text(json.dumps(self.state, indent=2))
+        # temp + replace: a force-quit mid-write would otherwise truncate
+        # state.json, and the loader silently falls back to defaults
+        tmp = self.state_path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(self.state, indent=2))
+        os.replace(tmp, self.state_path)
 
     def voice(self) -> str:
         """Current engine's voice, falling back to its default if unknown."""

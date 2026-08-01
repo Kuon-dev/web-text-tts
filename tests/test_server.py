@@ -467,3 +467,15 @@ def test_clone_upload_and_delete(tmp_path):
         assert client.post("/api/voices/clone?name=X", content=b"junk").status_code == 400
         assert client.delete(f"/api/voices/{vid}").status_code == 200
         assert client.delete(f"/api/voices/{vid}").status_code == 404
+
+
+def test_save_state_is_atomic(tmp_path):
+    """A force-quit mid-write must not truncate state.json: the loader falls
+    back to defaults on a corrupt file, silently losing position and voice."""
+    worker = FakeWorker(tmp_path / "cache")
+    app = create_app(tmp_path, worker, manager=FakeManager())
+    client = TestClient(app)
+    client.post("/api/state", json={"speed": 1.5})
+    # no stray temp files left behind
+    assert not list(tmp_path.glob("*.tmp"))
+    assert json.loads((tmp_path / "state.json").read_text())["speed"] == 1.5

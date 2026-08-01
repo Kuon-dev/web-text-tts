@@ -67,3 +67,28 @@ real-model tests are marked `-m slow`.
     npm run dev            # live-reload dev server on :5173, proxies /api to :8765
 
 The server serves the prebuilt `static/` — Node is only needed to change the UI.
+
+### Desktop app (Tauri, in `desktop/`)
+
+    npm install                    # once, from the repo root
+    npm run tauri dev -w desktop   # dev build with live reload
+    npm run tauri build -w desktop # bundle a .app / .msi
+
+The desktop app is a shell around the same backend and the same React UI —
+`desktop/` compiles `frontend/src`, so a UI change lands in both.
+
+It starts `server.py` itself and shows a startup screen while models load. If a
+server is already listening on 8765 (`bash start.sh`) it attaches to that one
+instead, so the two never race on `state.json`.
+
+Settings live at `<app config dir>/settings.json`:
+
+| Key | Meaning |
+|---|---|
+| `mode` | `native` or `wsl` |
+| `python` | interpreter to run — must have torch (`.venv311`, not `.venv`) |
+| `repo_dir` | checkout holding `server.py` |
+| `wsl_distro` / `wsl_repo_dir` / `wsl_python` | WSL2 backend, Windows only |
+| `port` | preferred port, default 8765 |
+| `extra_args` | extra CLI args appended to the `server.py` invocation |
+| `hf_home` | override the HuggingFace cache location |

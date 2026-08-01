@@ -1,7 +1,7 @@
 # Desktop App — Tauri 2 shell over the existing backend
 
 **Date:** 2026-08-01
-**Status:** Designed
+**Status:** Implemented
 **Extends:** `2026-07-14-novel-tts-design.md`, `2026-07-23-pluggable-tts-engines-design.md`
 
 ## Purpose
