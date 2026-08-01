@@ -58,7 +58,7 @@ export function TopBar({ prefs, update, theme, dark, updateTheme, reset, onPaste
             uploadWallpaper={uploadWallpaper}
             removeWallpaper={removeWallpaper}
           />
-          <Button size="sm" onClick={onPasteClick}>
+          <Button size="sm" onClick={onPasteClick} data-paste-trigger>
             <ClipboardPaste data-icon="inline-start" aria-hidden />
             Paste chapter
           </Button>

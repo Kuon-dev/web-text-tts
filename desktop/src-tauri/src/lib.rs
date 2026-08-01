@@ -7,6 +7,7 @@
 // warning fire because supervise.rs is out of scope for this task to edit.
 pub mod backend;
 mod commands;
+mod menu;
 mod settings;
 mod window;
 
@@ -27,6 +28,9 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_window_state::Builder::default().build())
+        .plugin(tauri_plugin_opener::init())
+        .menu(menu::build)
+        .on_menu_event(|app, event| menu::handle(app, event.id().0.as_str()))
         .invoke_handler(tauri::generate_handler![
             commands::get_backend_state,
             commands::restart_backend,
