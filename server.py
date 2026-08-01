@@ -10,6 +10,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -26,6 +27,12 @@ POLL_SECONDS = 1.0
 DEFAULT_STATE = {"positions": {}, "voices": {"kokoro": "af_heart"}, "speed": 1.0,
                  "volume": 1.0, "engine": "kokoro", "device_mode": "auto", "instruct": ""}
 _ENGINE_DEFAULT_VOICE = {"kokoro": "af_heart", "qwen3": "Ryan"}
+
+# Origins the Tauri desktop shell can present. Starlette matches allow_origins
+# by EXACT STRING, so the custom scheme has to be listed literally — a
+# wildcard pattern will not match `tauri://localhost`.
+DESKTOP_ORIGINS = ["tauri://localhost", "http://tauri.localhost",
+                   "https://tauri.localhost", "null"]
 
 
 def migrate_state(loaded: dict) -> dict:
@@ -158,7 +165,7 @@ class AppState:
 
 
 def create_app(data_dir: Path, worker, audio_wait: float = 30.0, *, manager,
-               engines=None, voice_ids=None) -> FastAPI:
+               engines=None, voice_ids=None, cors_origins=None) -> FastAPI:
     data_dir = Path(data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
     engines = engines or engine_catalog
@@ -220,6 +227,18 @@ def create_app(data_dir: Path, worker, audio_wait: float = 30.0, *, manager,
             await asyncio.to_thread(_check_reload)
 
     app = FastAPI(lifespan=lifespan)
+
+    # The desktop shell loads its UI from tauri://localhost and calls this
+    # server cross-origin. allow_methods=["*"] is what installs the OPTIONS
+    # preflight responder — FastAPI has no OPTIONS route for /api/wallpaper or
+    # /api/voices/{vid} and would answer 405. allow_credentials stays off:
+    # nothing here uses cookies.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=[*DESKTOP_ORIGINS, *(cors_origins or [])],
+        allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+        allow_methods=["*"], allow_headers=["*"], max_age=600,
+    )
 
     assets_dir = STATIC_DIR / "assets"
     if assets_dir.exists():
