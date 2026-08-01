@@ -198,7 +198,7 @@ behavior.
 
 ```python
 DESKTOP_ORIGINS = ["tauri://localhost", "http://tauri.localhost",
-                   "https://tauri.localhost", "null"]
+                   "https://tauri.localhost"]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[*DESKTOP_ORIGINS, *(cors_origins or [])],
@@ -214,8 +214,11 @@ Each part is load-bearing:
   OPTIONS route for these paths and would answer 405 to the two DELETEs.
 - `allow_origin_regex` covers the desktop dev server on `http://localhost:1420`, so
   `tauri dev` works without a second config knob.
-- `"null"` is cheap insurance; without it Starlette answers an opaque origin with
-  `400 Disallowed CORS origin` rather than degrading.
+- `"null"` is deliberately **not** listed. An earlier draft of this spec included it
+  as "cheap insurance" against opaque origins; that was wrong. `Origin: null` is
+  forgeable from any sandboxed iframe or `data:` URI, so allow-listing it would let
+  any page the user visits reach these routes — including `DELETE /api/wallpaper` and
+  `POST /api/voices/clone` — and read the responses. A Tauri webview never sends it.
 - **Do not** set `allow_credentials=True`. Nothing in the client sends cookies.
 
 Element loads — `audio.src`, `<img src>`, CSS `url()` — are no-cors and work with or

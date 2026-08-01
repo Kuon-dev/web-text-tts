@@ -537,7 +537,7 @@ Add a module-level constant next to `DEFAULT_STATE` (around line 25):
 # by EXACT STRING, so the custom scheme has to be listed literally — a
 # wildcard pattern will not match `tauri://localhost`.
 DESKTOP_ORIGINS = ["tauri://localhost", "http://tauri.localhost",
-                   "https://tauri.localhost", "null"]
+                   "https://tauri.localhost"]
 ```
 
 Change the signature at lines 160-161 to:
