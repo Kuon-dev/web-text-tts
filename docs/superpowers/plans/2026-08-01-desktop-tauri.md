@@ -2199,8 +2199,25 @@ impl BackendChild {
         stream: &'static str,
         logs: Arc<Mutex<VecDeque<LogLine>>>,
     ) {
+        // Decode lossily rather than via .lines(): map_while(Result::ok) would
+        // short-circuit the whole iterator on the first invalid UTF-8 byte,
+        // permanently stopping log capture AND leaving the pipe undrained until
+        // the kernel buffer fills and the child's write() blocks. A Python
+        // traceback with one stray byte is exactly when the log matters most.
         std::thread::spawn(move || {
-            for line in BufReader::new(reader).lines().map_while(Result::ok) {
+            let mut reader = BufReader::new(reader);
+            let mut buf = Vec::new();
+            loop {
+                buf.clear();
+                match reader.read_until(b'\n', &mut buf) {
+                    Ok(0) => return,          // EOF
+                    Ok(_) => {}
+                    Err(_) => return,
+                }
+                while matches!(buf.last(), Some(b'\n' | b'\r')) {
+                    buf.pop();
+                }
+                let line = String::from_utf8_lossy(&buf).into_owned();
                 let mut guard = match logs.lock() {
                     Ok(g) => g,
                     Err(_) => return,
