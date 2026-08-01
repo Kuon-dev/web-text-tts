@@ -243,8 +243,21 @@ mod tests {
 
     #[test]
     fn pick_free_port_returns_a_bindable_port() {
-        let p = pick_free_port().unwrap();
-        assert!(TcpListener::bind(("127.0.0.1", p)).is_ok());
+        // pick_free_port's own doc comment calls the TOCTOU between "the OS
+        // said this was free" and "we bind it ourselves" unavoidable, and
+        // says callers retry. Under cargo test's parallelism, another test
+        // in this same run can win that race and grab the exact port we
+        // were just handed before this assertion gets to it - asserting
+        // the single-attempt version would be checking a stronger guarantee
+        // than the function actually makes. Retry a few times, matching the
+        // real contract, instead of flaking under load.
+        for _ in 0..5 {
+            let p = pick_free_port().unwrap();
+            if TcpListener::bind(("127.0.0.1", p)).is_ok() {
+                return;
+            }
+        }
+        panic!("pick_free_port never returned an immediately bindable port across 5 attempts");
     }
 
     /// Runs the real `server.py` and checks that `probe`/`http_get_json`
