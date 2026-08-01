@@ -266,23 +266,29 @@ mod tests {
             std::thread::sleep(Duration::from_millis(20));
         }
 
-        let started = Instant::now();
-        child.kill_tree();
-        let elapsed = started.elapsed();
-
-        // The discriminator itself: a SIGTERM death returns in ~100ms (one
-        // poll of the grace loop); only a genuine escalation to SIGKILL takes
-        // the full ~2s grace window (20 x 100ms). Do not shorten the
-        // production grace period to make this assertion cheaper.
-        assert!(
-            elapsed >= Duration::from_millis(1800),
-            "kill_tree returned in {elapsed:?} - too fast to have escalated \
-             to SIGKILL (grace window is ~2s); the child likely died on the \
-             initial SIGTERM instead"
-        );
-
+        // kill_tree's grace-period loop (and thus everything below that
+        // depends on its timing or on a SIGKILL having been sent) only
+        // exists on the #[cfg(unix)] branch of kill_tree - the non-unix
+        // branch is an immediate `Child::kill()` with no grace window at
+        // all. Keep the two expectations platform-separated rather than
+        // asserting a unix-only timing bound unconditionally.
         #[cfg(unix)]
         {
+            let started = Instant::now();
+            child.kill_tree();
+            let elapsed = started.elapsed();
+
+            // The discriminator itself: a SIGTERM death returns in ~100ms
+            // (one poll of the grace loop); only a genuine escalation to
+            // SIGKILL takes the full ~2s grace window (20 x 100ms). Do not
+            // shorten the production grace period to make this cheaper.
+            assert!(
+                elapsed >= Duration::from_millis(1800),
+                "kill_tree returned in {elapsed:?} - too fast to have \
+                 escalated to SIGKILL (grace window is ~2s); the child \
+                 likely died on the initial SIGTERM instead"
+            );
+
             use std::os::unix::process::ExitStatusExt;
             let status = child
                 .try_wait()
@@ -295,7 +301,15 @@ mod tests {
         }
         #[cfg(not(unix))]
         {
-            assert!(child.try_wait().is_some(), "child survived kill_tree escalation");
+            // No grace window here to assert on - `kill_tree`'s non-unix arm
+            // just calls `Child::kill()` and waits, so an immediate death is
+            // the honest (and only) expectation. Note this test's shell
+            // script (trap/echo/&/wait) isn't valid `cmd.exe` syntax either,
+            // so this arm exists to keep the file cfg-coherent, not to claim
+            // this test is functionally meaningful on Windows - see the
+            // module-level Windows caveat.
+            child.kill_tree();
+            assert!(child.try_wait().is_some(), "child survived kill_tree");
         }
     }
 
