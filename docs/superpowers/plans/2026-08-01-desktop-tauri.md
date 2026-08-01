@@ -308,6 +308,10 @@ In `frontend/src/lib/player.ts`, replace the `savePosition` method (currently li
    *  WebView2 do not reliably run beforeunload, so without this a quit
    *  mid-chapter loses up to SAVE_DEBOUNCE_MS of progress. */
   flushPosition() {
+    // Same gate jump() uses. Without it, a close before loadDoc() resolves
+    // would POST the initial idx of 0 and overwrite the real saved position
+    // with zero — the very loss this method exists to prevent.
+    if (!this.doc.chunks.length) return
     clearTimeout(this.saveTimer)
     fetch(apiUrl("/api/state"), {
       method: "POST",
