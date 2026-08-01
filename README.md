@@ -78,8 +78,8 @@ The desktop app is a shell around the same backend and the same React UI —
 `desktop/` compiles `frontend/src`, so a UI change lands in both.
 
 It starts `server.py` itself and shows a startup screen while models load. If a
-server is already listening on 8765 (`bash start.sh`) it attaches to that one
-instead, so the two never race on `state.json`.
+server is already listening on 8765 (`.venv311/bin/python server.py`) it
+attaches to that one instead, so the two never race on `state.json`.
 
 Settings live at `<app config dir>/settings.json`:
 
