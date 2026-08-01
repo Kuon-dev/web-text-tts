@@ -40,6 +40,9 @@ pub fn run() {
         .setup(|app| {
             app.manage(Arc::new(BackendHandle::default()));
             backend::health::start(app.handle().clone());
+            if let Some(main) = app.get_webview_window("main") {
+                window::install_close_flush(&main);
+            }
             Ok(())
         })
         .build(tauri::generate_context!())

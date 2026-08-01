@@ -1,4 +1,6 @@
-use tauri::WebviewWindow;
+use std::time::Duration;
+
+use tauri::{WebviewWindow, WindowEvent};
 
 /// Build the JS statement that publishes `base` as `window.__API_BASE__`.
 ///
@@ -19,6 +21,33 @@ fn api_base_js(base: &str) -> String {
 /// `audio.src.endsWith(audioUrl(cid))`.
 pub fn inject_api_base(window: &WebviewWindow, base: &str) -> tauri::Result<()> {
     window.eval(api_base_js(base))
+}
+
+/// Give the webview a moment to persist the reading position before the window
+/// goes away. WKWebView and WebView2 do not reliably run beforeunload, and
+/// savePosition() is a 300ms debounce, so without this a quit mid-chapter can
+/// drop the last position write.
+///
+/// `destroy()` is used (not `close()`) to actually tear the window down: per
+/// tauri 2.11's WebviewWindow::destroy doc comment, and confirmed in
+/// tauri-runtime-wry (WindowMessage::Destroy routes straight to
+/// on_window_close, never through on_close_requested), destroy() "does not
+/// emit any events" — it cannot re-fire CloseRequested, so this handler
+/// cannot re-enter itself.
+pub fn install_close_flush(window: &WebviewWindow) {
+    let win = window.clone();
+    window.on_window_event(move |event| {
+        if let WindowEvent::CloseRequested { api, .. } = event {
+            if win.eval("window.__flushPosition?.()").is_ok() {
+                api.prevent_close();
+                let w = win.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(150));
+                    let _ = w.destroy();
+                });
+            }
+        }
+    });
 }
 
 #[cfg(test)]

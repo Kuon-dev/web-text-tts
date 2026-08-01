@@ -1,9 +1,23 @@
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 import App from "@/App"
+import { player } from "@/lib/player"
 import "./index.css"
 import { Boot } from "@desktop/Boot"
 import { installDesktopGlue } from "@desktop/desktop"
+
+declare global {
+  interface Window {
+    __flushPosition?: () => void
+  }
+}
+
+// The Rust side evals `window.__flushPosition?.()` on CloseRequested, before
+// destroying the window — see install_close_flush in
+// desktop/src-tauri/src/window.rs. flushPosition is an unbound class method,
+// so it must be wrapped rather than assigned directly (that would lose
+// `this`).
+window.__flushPosition = () => player.flushPosition()
 
 installDesktopGlue(() => {
   // App.tsx opens the paste dialog from its own state; the top-bar button is
