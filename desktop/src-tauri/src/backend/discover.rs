@@ -21,14 +21,32 @@ pub enum Probe {
 /// app makes are localhost JSON GETs. `Connection: close` makes uvicorn close
 /// the socket after responding, so read-to-EOF terminates instead of hanging
 /// on keep-alive.
+///
+/// Owns its own connect step (unlike `probe`, which needs the connect
+/// error's `io::ErrorKind` before it collapses to a string) — this keeps the
+/// signature a plain `Result<Value, String>`, which is all Task 11's
+/// readiness polling needs: retry until `Ok`.
 pub fn http_get_json(
     port: u16,
     path: &str,
     timeout: Duration,
 ) -> Result<serde_json::Value, String> {
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
-    let mut sock = TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT)
+    let sock = TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT)
         .map_err(|e| format!("connect: {e}"))?;
+    request_over(sock, port, path, timeout)
+}
+
+/// Sends the GET and parses the response over an already-connected socket.
+/// Split out of `http_get_json` so `probe` can inspect the connect error's
+/// `io::ErrorKind` (via its own `connect_timeout` call) before falling back
+/// to this shared request/response path on success.
+fn request_over(
+    mut sock: TcpStream,
+    port: u16,
+    path: &str,
+    timeout: Duration,
+) -> Result<serde_json::Value, String> {
     sock.set_read_timeout(Some(timeout)).map_err(|e| e.to_string())?;
     sock.set_write_timeout(Some(timeout)).map_err(|e| e.to_string())?;
 
@@ -64,16 +82,41 @@ pub fn http_get_json(
 /// engine_id as a plain property), so it cannot block behind an in-flight
 /// synthesize. /api/doc and /api/voices both take st.lock; /api/audio blocks
 /// for up to 30s.
+///
+/// The connect step is done here (not via `http_get_json`) specifically so
+/// the failure can be classified on `io::ErrorKind` before it is stringified
+/// — see `classify_connect_error` for why that distinction matters.
 pub fn probe(port: u16) -> Probe {
-    let value = match http_get_json(port, "/api/engines", READ_TIMEOUT) {
-        Ok(v) => v,
-        Err(e) if e.starts_with("connect:") => return Probe::Free,
-        Err(_) => return Probe::Foreign,
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
+    let sock = match TcpStream::connect_timeout(&addr, CONNECT_TIMEOUT) {
+        Ok(s) => s,
+        Err(e) => return classify_connect_error(e.kind()),
     };
-    if is_novel_tts(&value) {
-        Probe::NovelTts
-    } else {
-        Probe::Foreign
+    match request_over(sock, port, "/api/engines", READ_TIMEOUT) {
+        Ok(v) if is_novel_tts(&v) => Probe::NovelTts,
+        _ => Probe::Foreign,
+    }
+}
+
+/// Maps a failed connect attempt's `io::ErrorKind` to a `Probe`.
+///
+/// Only `ConnectionRefused` means nothing is listening. Every other
+/// connect-phase failure — `TimedOut`, `PermissionDenied`,
+/// `AddrNotAvailable`, or anything else the OS reports — means the port is
+/// occupied or the attempt was blocked, but not that it is *free*.
+/// Misclassifying an occupied port as free causes a spawn collision (the
+/// direction the brief calls out as forbidden); misclassifying a free port
+/// as foreign only wastes a port. So the mapping is deliberately
+/// asymmetric: `ConnectionRefused` alone is `Free`, everything else is
+/// `Foreign`.
+///
+/// Kept as a pure function over `io::ErrorKind` (rather than inline `match`
+/// on a live error) so it can be unit-tested directly against synthetic
+/// kinds like `TimedOut` that are awkward to provoke from a real socket.
+fn classify_connect_error(kind: std::io::ErrorKind) -> Probe {
+    match kind {
+        std::io::ErrorKind::ConnectionRefused => Probe::Free,
+        _ => Probe::Foreign,
     }
 }
 
@@ -143,6 +186,39 @@ mod tests {
     #[test]
     fn nothing_listening_is_free() {
         assert!(matches!(probe(free_port()), Probe::Free));
+    }
+
+    /// Only `ConnectionRefused` may classify as `Free`. Every other
+    /// connect-phase error - a timeout, a permission-denied from
+    /// loopback-intercepting firewall software, address exhaustion, or
+    /// anything else the OS can report - must classify as `Foreign`, because
+    /// treating an occupied port as free causes a spawn collision. Exercised
+    /// as a pure function over `io::ErrorKind` because provoking a real
+    /// socket into e.g. `TimedOut` on demand is impractical.
+    #[test]
+    fn only_connection_refused_classifies_as_free() {
+        use std::io::ErrorKind;
+
+        assert!(matches!(
+            classify_connect_error(ErrorKind::ConnectionRefused),
+            Probe::Free
+        ));
+        assert!(matches!(
+            classify_connect_error(ErrorKind::TimedOut),
+            Probe::Foreign
+        ));
+        assert!(matches!(
+            classify_connect_error(ErrorKind::PermissionDenied),
+            Probe::Foreign
+        ));
+        assert!(matches!(
+            classify_connect_error(ErrorKind::AddrNotAvailable),
+            Probe::Foreign
+        ));
+        assert!(matches!(
+            classify_connect_error(ErrorKind::Other),
+            Probe::Foreign
+        ));
     }
 
     #[test]
