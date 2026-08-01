@@ -12,7 +12,8 @@
 
 - All paths relative to the repo root (the directory containing `server.py`). Work on branch `feat/desktop-tauri`, which is based on `a370a19` (= `master`).
 - **Git commits: author `kuon <aaronlyn88@gmail.com>`. NEVER add a `Co-Authored-By` trailer.** This is the repo convention (63 of 70 commits follow it; only the 7 MCP commits of 2026-08-01 deviate — do not copy them).
-- **Python test runner is `.venv/bin/pytest`** (Python 3.14, no torch — fast suite only). **Python runtime for the sidecar is `.venv311/bin/python`** (Python 3.11, torch present). These are different interpreters on purpose. `.venv311` has no pytest.
+- **Python test runner is `.venv/bin/pytest`** (Python 3.14, no torch — fast suite only). **Python runtime for the sidecar is `.venv311/bin/python`** (Python 3.11, torch + kokoro present). These are different interpreters on purpose. `.venv311` has no pytest.
+- **Never run `bash start.sh`.** It is broken in this checkout: `.venv/.deps-installed` does not exist, so it would run `python3 -m venv .venv` and then `pip install -r requirements.txt`, attempting a multi-GB torch install into the Python 3.14 venv. To start a server by hand, always use `.venv311/bin/python server.py`. Fixing `start.sh` is **out of scope** for this branch — do not touch it — but every backend change must still leave its no-flags code path behaviorally identical, which is what Task 5 Step 6 verifies.
 - **Baseline test state before any work: `183 passed, 1 failed, 2 deselected`.** The failure is pre-existing and unrelated: `tests/test_romaji.py::test_phonemes_stay_within_kokoro_vocab` raises `ModuleNotFoundError: No module named 'misaki'`. Do not try to fix it; do not count it as a regression. Any *other* failure is yours.
 - The fast suite (`.venv/bin/pytest -m "not slow"`) must reach that same baseline after every task, on a machine with no GPU and no `qwen-tts`. Never import `torch`, `kokoro`, or `qwen_tts` at module top level.
 - **Every backend change is additive and must default to today's behavior.** `bash start.sh`, `python server.py`, and the web app at `http://localhost:8765` must be byte-for-byte unaffected in behavior. This is verified explicitly in Tasks 4 and 5.
@@ -405,7 +406,7 @@ Expected: the script tag is present and `static/theme-boot.js` exists.
 
 - [ ] **Step 4: Verify no flash in the browser**
 
-Run: `bash start.sh`, open `http://localhost:8765`, set a light theme in settings, hard-reload.
+Run: `.venv311/bin/python server.py`, open `http://localhost:8765`, set a light theme in settings, hard-reload.
 Expected: the page paints light immediately, with no dark flash.
 
 - [ ] **Step 5: Commit**
@@ -565,7 +566,7 @@ Expected: `190 passed, 1 failed, 2 deselected` — the same single pre-existing 
 
 - [ ] **Step 6: Verify the web app still works unchanged**
 
-Run: `bash start.sh`, open `http://localhost:8765`, play a chunk, change a voice.
+Run: `.venv311/bin/python server.py`, open `http://localhost:8765`, play a chunk, change a voice.
 Expected: identical behavior to before.
 
 - [ ] **Step 7: Commit**
@@ -745,10 +746,10 @@ Expected: PASS, 5 tests.
 Run: `.venv/bin/pytest -m "not slow" -q`
 Expected: `195 passed, 1 failed, 2 deselected`.
 
-Then confirm `start.sh` still serves on the original port with the original data dir:
+Then confirm the no-flags entry point — the one `start.sh` uses — still serves on the original port with the original data dir:
 
 ```bash
-bash start.sh &
+.venv311/bin/python server.py &
 sleep 20 && curl -s http://127.0.0.1:8765/api/engines | head -c 80 && kill %1
 ```
 
@@ -1000,7 +1001,7 @@ Expected: `tsc -b` clean, `desktop/dist/` produced.
 - [ ] **Step 9: Verify the shared UI actually renders**
 
 ```bash
-bash start.sh &
+.venv311/bin/python server.py &
 npm run dev -w desktop
 ```
 
@@ -1210,7 +1211,7 @@ fn main() {
 - [ ] **Step 9: Run it against a live backend**
 
 ```bash
-bash start.sh &
+.venv311/bin/python server.py &
 npm run tauri dev -w desktop
 ```
 
@@ -1673,7 +1674,7 @@ Expected: PASS, 9 tests total.
 - [ ] **Step 7: Verify against the real server**
 
 ```bash
-bash start.sh &
+.venv311/bin/python server.py &
 cd desktop/src-tauri && cargo test -- --ignored --nocapture
 ```
 
@@ -2666,7 +2667,7 @@ Expected: the startup screen appears, backend output streams into the details bl
 - [ ] **Step 9: Verify the attach path**
 
 ```bash
-bash start.sh &
+.venv311/bin/python server.py &
 npm run tauri dev -w desktop
 ```
 
@@ -2807,7 +2808,7 @@ Expected: `0` — this is the stdin watchdog (layer 4) doing the work, since SIG
 - [ ] **Step 6: Verify attach mode does NOT kill the server**
 
 ```bash
-bash start.sh &
+.venv311/bin/python server.py &
 npm run tauri dev -w desktop      # attaches; then quit the app
 curl -s http://127.0.0.1:8765/api/engines | head -c 40
 ```
@@ -3280,7 +3281,7 @@ Expected: a bundle under `desktop/src-tauri/target/release/bundle/`. Launch it f
 - [ ] **Step 8: Verify the web app one final time**
 
 ```bash
-npm run build -w frontend && bash start.sh
+npm run build -w frontend && .venv311/bin/python server.py
 ```
 
 Open `http://localhost:8765`, play a chunk, change a voice, set a wallpaper.
