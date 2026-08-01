@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - All paths relative to the repo root (the directory containing `server.py`). Work on branch `feat/desktop-tauri`, which is based on `a370a19` (= `master`).
-- **Git commits: author `kuon <aaronlyn88@gmail.com>`. NEVER add a `Co-Authored-By` trailer.** This is the repo convention (63 of 70 commits follow it; only the 7 MCP commits of 2026-08-01 deviate — do not copy them).
+- **Git commits: author `Kuon <aaronlyn88@gmail.com>`. NEVER add a `Co-Authored-By` trailer.** This is the repo convention (63 of 70 commits follow it; only the 7 MCP commits of 2026-08-01 deviate — do not copy them).
 - **Python test runner is `.venv/bin/pytest`** (Python 3.14, no torch — fast suite only). **Python runtime for the sidecar is `.venv311/bin/python`** (Python 3.11, torch + kokoro present). These are different interpreters on purpose. `.venv311` has no pytest.
 - **Never run `bash start.sh`.** It is broken in this checkout: `.venv/.deps-installed` does not exist, so it would run `python3 -m venv .venv` and then `pip install -r requirements.txt`, attempting a multi-GB torch install into the Python 3.14 venv. To start a server by hand, always use `.venv311/bin/python server.py`. Fixing `start.sh` is **out of scope** for this branch — do not touch it — but every backend change must still leave its no-flags code path behaviorally identical, which is what Task 5 Step 6 verifies.
 - **Baseline test state before any work: `183 passed, 1 failed, 2 deselected`.** The failure is pre-existing and unrelated: `tests/test_romaji.py::test_phonemes_stay_within_kokoro_vocab` raises `ModuleNotFoundError: No module named 'misaki'`. Do not try to fix it; do not count it as a regression. Any *other* failure is yours.
@@ -131,12 +131,17 @@ declare global {
  * Read at CALL time, never at module-eval time, so the Rust-side injection can
  * land after this module has been evaluated.
  *
+ * Read via globalThis rather than window: in every real browser/webview
+ * window IS globalThis, so this is equivalent there, but it also works in the
+ * plain-node environment the unit tests run under, where `window` does not
+ * exist at all.
+ *
  * INVARIANT: no trailing slash and no query string. player.ts compares
  * `audio.src.endsWith(audioUrl(cid))`, which only holds while the base is a
  * bare origin.
  */
 const base = () =>
-  (typeof window !== "undefined" ? window.__API_BASE__ : undefined) ??
+  (globalThis as { __API_BASE__?: string }).__API_BASE__ ??
   (import.meta.env.VITE_API_BASE as string | undefined) ??
   ""
 
