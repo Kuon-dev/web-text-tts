@@ -177,7 +177,7 @@ impl BackendChild {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     fn echo_spec(script: &str) -> LaunchSpec {
         LaunchSpec {
@@ -241,21 +241,62 @@ mod tests {
     #[test]
     fn kill_tree_escalates_to_sigkill_when_sigterm_is_ignored() {
         // `sleep 30` above dies on the initial SIGTERM and never exercises
-        // the SIGKILL escalation path. This child ignores TERM (and the
-        // ignore-disposition is inherited by the backgrounded `sleep` across
-        // fork/exec), so kill_tree must fall through to SIGKILL after the
-        // grace window. Necessarily takes ~2s (the grace window) — do not
-        // shorten the production grace period just to speed this up.
+        // the SIGKILL escalation path. A child that ignores TERM does - but
+        // only if kill_tree() isn't called until the shell has actually
+        // exec'd and installed the trap. spawn() returns as soon as fork()
+        // completes, well before exec(); an earlier version of this test
+        // called kill_tree() immediately, so the initial SIGTERM sometimes
+        // arrived while the shell was still at its *default* disposition and
+        // died there instead - a false pass (try_wait().is_some() can't tell
+        // "died from SIGTERM" from "died from SIGKILL"), caught by review via
+        // a 0.11s runtime against a 2s grace window. So: block until the
+        // child proves the trap is installed before sending anything.
         let mut child =
-            BackendChild::spawn(&echo_spec("trap '' TERM; sleep 30 & wait")).unwrap();
-        child.kill_tree();
-        for _ in 0..50 {
-            if child.try_wait().is_some() {
-                return;
+            BackendChild::spawn(&echo_spec("trap '' TERM; echo ready; sleep 30 & wait")).unwrap();
+
+        let ready_by = Instant::now() + Duration::from_secs(5);
+        loop {
+            if child.logs().iter().any(|l| l.text == "ready") {
+                break;
             }
-            std::thread::sleep(Duration::from_millis(100));
+            assert!(
+                Instant::now() < ready_by,
+                "child never announced readiness; trap may not have installed"
+            );
+            std::thread::sleep(Duration::from_millis(20));
         }
-        panic!("child survived kill_tree escalation to SIGKILL");
+
+        let started = Instant::now();
+        child.kill_tree();
+        let elapsed = started.elapsed();
+
+        // The discriminator itself: a SIGTERM death returns in ~100ms (one
+        // poll of the grace loop); only a genuine escalation to SIGKILL takes
+        // the full ~2s grace window (20 x 100ms). Do not shorten the
+        // production grace period to make this assertion cheaper.
+        assert!(
+            elapsed >= Duration::from_millis(1800),
+            "kill_tree returned in {elapsed:?} - too fast to have escalated \
+             to SIGKILL (grace window is ~2s); the child likely died on the \
+             initial SIGTERM instead"
+        );
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::ExitStatusExt;
+            let status = child
+                .try_wait()
+                .expect("kill_tree's final wait() should have reaped the child by now");
+            assert_eq!(
+                status.signal(),
+                Some(libc::SIGKILL),
+                "child did not die from SIGKILL: {status:?}"
+            );
+        }
+        #[cfg(not(unix))]
+        {
+            assert!(child.try_wait().is_some(), "child survived kill_tree escalation");
+        }
     }
 
     #[test]
