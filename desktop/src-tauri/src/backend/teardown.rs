@@ -3,7 +3,7 @@ use std::time::{Duration, Instant};
 
 use tauri::{AppHandle, Manager};
 
-use super::health::BackendHandle;
+use super::health::{currently_owned, BackendHandle};
 
 const CLEAN_EXIT_GRACE: Duration = Duration::from_secs(3);
 
@@ -30,12 +30,17 @@ pub fn shutdown(app: &AppHandle) {
 
 /// The decision logic behind `shutdown`.
 ///
-/// Ownership is read from `handle.state`'s `owned` flag, not re-derived here:
-/// Task 12 made `owned` a value stamped once, in `emit`, straight off
-/// `handle.child.is_some()` - attach mode never populates that slot, so
-/// `owned` is always false for the life of an attached run and this function
-/// never touches `handle.child` at all in that case. Nothing in this module
-/// hand-sets `owned`; it is only ever read.
+/// Ownership is read straight off the live child slot via `currently_owned`
+/// (`handle.child.is_some()`), not off `handle.state`'s `owned` flag: that
+/// flag is a *snapshot*, stamped once by the last `emit` call, and there is
+/// a real window - up to the ~1.5s of one `wait_ready` poll - between a
+/// child actually being stored in the slot and the next `emit` refreshing
+/// that snapshot to say so. A quit landing in that window used to see a
+/// stale `owned = false` and skip cleanup entirely, leaking a live backend
+/// process (Finding 3's emit-vs-store TOCTOU). `handle.child.is_some()` has
+/// no such lag: attach mode never populates that slot at all (`BackendChild`
+/// can only be constructed by `BackendChild::spawn`), so it is always an
+/// exact, un-stale answer to "is there something here that is ours to kill".
 ///
 /// Idempotent, and deliberately does not special-case a child that is
 /// already gone: closing the stdin of an exited process, `try_wait`-ing one
@@ -44,13 +49,7 @@ pub fn shutdown(app: &AppHandle) {
 /// `ExitRequested`-then-`Exit` ladder (or a call against the `exited` phase,
 /// where a dead child still occupies the slot) just falls through cleanly.
 fn shutdown_backend(handle: &BackendHandle) {
-    let owned = handle
-        .state
-        .lock()
-        .ok()
-        .and_then(|g| g.as_ref().map(|s| s.owned))
-        .unwrap_or(false);
-    if !owned {
+    if !currently_owned(handle) {
         return;
     }
 
@@ -81,7 +80,6 @@ fn shutdown_backend(handle: &BackendHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend::health::BackendState;
     use crate::backend::launch::LaunchSpec;
     use crate::backend::supervise::BackendChild;
 
@@ -98,23 +96,11 @@ mod tests {
         }
     }
 
-    fn owned_state(owned: bool) -> BackendState {
-        BackendState {
-            phase: "ready".into(),
-            base: None,
-            elapsed_s: 0,
-            message: None,
-            log_tail: vec![],
-            owned,
-        }
-    }
-
     #[test]
     fn attach_mode_is_a_complete_no_op() {
         // A fresh handle is exactly what attach mode leaves behind for the
-        // entire life of the run: `state` is None (nothing was ever
-        // emitted with `owned = true`), `child` is None (attach never
-        // populates it). `shutdown_backend` must not touch either slot.
+        // entire life of the run: `child` is None (attach never populates
+        // it). `shutdown_backend` must not touch it.
         let handle = BackendHandle::default();
         shutdown_backend(&handle);
         assert!(
@@ -124,29 +110,27 @@ mod tests {
     }
 
     #[test]
-    fn owned_false_leaves_a_populated_child_running() {
-        // Structurally, `owned = false` with a populated `child` slot can't
-        // happen via the real `emit` derivation (owned is read straight off
-        // `child.is_some()`) - but this is the guard that actually makes
-        // "trust `owned`, don't hand-derive it" true rather than aspirational.
-        // If it were ever wrong, this is the test that would catch a
-        // real server getting killed out from under its owner.
+    fn a_populated_child_is_killed_even_when_state_was_never_emitted() {
+        // The emit-vs-store TOCTOU (Finding 3): `handle.state`'s `owned`
+        // flag is only ever refreshed by `emit`, and there is a real window
+        // - right after a child is stored, before the next `emit` call -
+        // where a live, owned child sits in the slot while `state` still
+        // says `owned = false` (or, as here, isn't set at all). A quit
+        // landing in that window must still find and kill it: ownership is
+        // read straight off the live slot (`currently_owned`), not off a
+        // snapshot that can lag behind it.
         let handle = BackendHandle::default();
         let child = BackendChild::spawn(&echo_spec("sleep 30")).expect("spawn a trivial child");
         *handle.child.lock().unwrap() = Some(child);
-        *handle.state.lock().unwrap() = Some(owned_state(false));
+        assert!(handle.state.lock().unwrap().is_none(), "state was never emitted");
 
         shutdown_backend(&handle);
 
-        let mut slot = handle.child.lock().unwrap();
-        let child = slot
-            .as_mut()
-            .expect("must still be present: shutdown_backend must not have touched it");
         assert!(
-            child.try_wait().is_none(),
-            "a server we do not own must be left running"
+            handle.child.lock().unwrap().is_none(),
+            "a live child in the slot must be killed and cleared regardless \
+             of what (if anything) was last emitted to handle.state"
         );
-        child.kill_tree(); // cleanup: don't leak a sleeping child out of the test
     }
 
     #[test]
@@ -157,7 +141,6 @@ mod tests {
         let child =
             BackendChild::spawn(&echo_spec("cat > /dev/null")).expect("spawn a trivial child");
         *handle.child.lock().unwrap() = Some(child);
-        *handle.state.lock().unwrap() = Some(owned_state(true));
 
         let started = Instant::now();
         shutdown_backend(&handle);
@@ -184,7 +167,6 @@ mod tests {
         let handle = BackendHandle::default();
         let child = BackendChild::spawn(&echo_spec("sleep 30")).expect("spawn a trivial child");
         *handle.child.lock().unwrap() = Some(child);
-        *handle.state.lock().unwrap() = Some(owned_state(true));
 
         let started = Instant::now();
         shutdown_backend(&handle);
@@ -211,7 +193,6 @@ mod tests {
         let child =
             BackendChild::spawn(&echo_spec("cat > /dev/null")).expect("spawn a trivial child");
         *handle.child.lock().unwrap() = Some(child);
-        *handle.state.lock().unwrap() = Some(owned_state(true));
 
         shutdown_backend(&handle);
         assert!(handle.child.lock().unwrap().is_none());
@@ -229,7 +210,7 @@ mod tests {
         // The brief's documented edge case: `watch_for_exit` (health.rs)
         // detects a child that died on its own and emits the "exited"
         // phase, but does not clear `handle.child` - the dead `Child`
-        // stays in the slot, so `owned` is still true. `shutdown_backend`
+        // stays in the slot, so it still reads as owned. `shutdown_backend`
         // must tolerate that rather than special-case it: close_stdin and
         // kill_tree on an already-dead process are harmless no-ops, and the
         // very first try_wait() in the loop should already see it as gone.
@@ -242,7 +223,6 @@ mod tests {
             std::thread::sleep(Duration::from_millis(50));
         }
         *handle.child.lock().unwrap() = Some(child);
-        *handle.state.lock().unwrap() = Some(owned_state(true));
 
         let started = Instant::now();
         shutdown_backend(&handle);

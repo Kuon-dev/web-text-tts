@@ -13,10 +13,17 @@ const COPY: Record<BackendState["phase"], string> = {
 
 export function Boot({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<BackendState | null>(null)
+  const [restarting, setRestarting] = useState(false)
 
   useEffect(() => {
     getBackendState().then((s) => s && setState(s))
-    const un = onBackendState(setState)
+    const un = onBackendState((s) => {
+      setState(s)
+      // A real phase transition means a run is no longer "in flight" from
+      // the button's perspective, whether it's the restart we asked for or
+      // some other resolution — re-enable Retry.
+      if (s.phase !== "failed" && s.phase !== "exited") setRestarting(false)
+    })
     return () => {
       un.then((f) => f())
     }
@@ -67,10 +74,18 @@ export function Boot({ children }: { children: React.ReactNode }) {
         {failed && (
           <button
             type="button"
-            onClick={() => restartBackend()}
-            className="mt-4 rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground"
+            onClick={() => {
+              // Disabled for the duration of the run: restart_backend is
+              // now interlocked (Finding 3's epoch guard) so a second click
+              // can't corrupt anything, but there is still no reason to let
+              // the user queue up clicks against a 300s startup window.
+              setRestarting(true)
+              restartBackend()
+            }}
+            disabled={restarting}
+            className="mt-4 rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground disabled:opacity-50"
           >
-            Retry
+            {restarting ? "Restarting…" : "Retry"}
           </button>
         )}
       </div>

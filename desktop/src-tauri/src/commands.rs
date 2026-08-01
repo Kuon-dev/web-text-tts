@@ -12,6 +12,16 @@ pub fn get_backend_state(handle: tauri::State<'_, Arc<BackendHandle>>) -> Option
 
 #[tauri::command]
 pub fn restart_backend(app: AppHandle, handle: tauri::State<'_, Arc<BackendHandle>>) {
+    // Supersede any in-flight run FIRST, before touching the child slot.
+    // This is what closes the double-restart race (Finding 3): a run still
+    // mid-spawn or mid-`wait_ready` re-checks the epoch under the same lock
+    // this function uses next, so by the time we acquire it, that run has
+    // either already stored its (now-current) child - which we then kill
+    // below, correctly - or has seen the bump and backed off without
+    // storing anything at all. Either way there is nothing left for it to
+    // race us over. `health::start` bumps again internally for the run it
+    // spawns; bumping twice on a restart is harmless, only monotonic.
+    handle.supersede();
     if let Ok(mut slot) = handle.child.lock() {
         if let Some(child) = slot.as_mut() {
             child.close_stdin();

@@ -1,3 +1,4 @@
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -50,10 +51,79 @@ impl BackendState {
 pub struct BackendHandle {
     pub child: Mutex<Option<BackendChild>>,
     pub state: Mutex<Option<BackendState>>,
+    /// Generation counter. Bumped by every `start()` (including the one
+    /// `restart_backend` triggers). A run captures the value at spawn time
+    /// and treats it as its "am I still the current run" ticket for the
+    /// rest of its life - see `current`, `store_if_current`,
+    /// `cleanup_if_current` and `emit` below, which are the only things
+    /// allowed to touch `child`/`state` and all gate on it. This is what
+    /// makes a second Restart (or a Retry racing a slow first attempt) shut
+    /// the superseded run out instead of racing it - see Finding 3.
+    epoch: AtomicUsize,
 }
 
-fn emit(app: &AppHandle, mut state: BackendState) {
+impl BackendHandle {
+    /// Bump the generation and return the new value. Called once per
+    /// `start()`; `restart_backend` (commands.rs) also calls it directly,
+    /// before it touches the child slot, so a thread still working under
+    /// the old epoch is guaranteed to see the bump (via `current`) before
+    /// restart's own kill/clear can race it - see the module doc above.
+    pub fn supersede(&self) -> usize {
+        self.epoch.fetch_add(1, Ordering::SeqCst) + 1
+    }
+}
+
+/// True iff `epoch` is still `handle`'s current generation. Always read
+/// fresh off the atomic - never cached across an await/sleep/lock boundary -
+/// so nothing holds a stale "yes" past the point it stops being true.
+fn current(handle: &BackendHandle, epoch: usize) -> bool {
+    handle.epoch.load(Ordering::SeqCst) == epoch
+}
+
+/// Store `child` in the shared slot iff `epoch` is still current; otherwise
+/// hand it straight back so the (now superseded) caller can kill it itself.
+/// A superseded run's freshly spawned child never enters shared state, so no
+/// one else knows it exists - killing it is that caller's job alone.
+///
+/// The epoch is re-checked *under the same lock* the store itself uses, so
+/// this races cleanly against a concurrent `restart_backend`/`supersede`:
+/// either that bump lands before this check (we see it, refuse to store),
+/// or it lands after we've already stored and released the lock (in which
+/// case what we stored was, at the moment we stored it, genuinely current -
+/// and `restart_backend`'s own lock-guarded kill/clear will reach it next).
+fn store_if_current(handle: &BackendHandle, epoch: usize, child: BackendChild) -> Option<BackendChild> {
+    let Ok(mut slot) = handle.child.lock() else { return Some(child) };
+    if handle.epoch.load(Ordering::SeqCst) != epoch {
+        return Some(child);
+    }
+    *slot = Some(child);
+    None
+}
+
+/// Kill and clear whatever is in the slot iff `epoch` is still current;
+/// otherwise a no-op. A superseded caller must not touch the slot at all -
+/// by the time it notices, either a restart already cleared it, or a newer
+/// generation has stored its own child there. Same lock-guarded re-check
+/// discipline as `store_if_current`.
+fn cleanup_if_current(handle: &BackendHandle, epoch: usize) -> Vec<LogLine> {
+    let Ok(mut slot) = handle.child.lock() else { return Vec::new() };
+    if handle.epoch.load(Ordering::SeqCst) != epoch {
+        return Vec::new();
+    }
+    let mut tail = Vec::new();
+    if let Some(c) = slot.as_mut() {
+        tail = c.log_tail(40);
+        c.kill_tree();
+    }
+    *slot = None;
+    tail
+}
+
+fn emit(app: &AppHandle, epoch: usize, mut state: BackendState) {
     let handle = app.state::<Arc<BackendHandle>>();
+    if !current(&handle, epoch) {
+        return; // superseded: must not emit, must not stamp handle.state
+    }
     // Stamp ownership here, once, from the child slot itself rather than
     // trust each call site to set it correctly. `BackendChild` can only be
     // constructed by `BackendChild::spawn` (see supervise.rs - its `child`
@@ -65,26 +135,41 @@ fn emit(app: &AppHandle, mut state: BackendState) {
     // `false` for the entire, possibly 300s, window before `wait_ready`
     // succeeded) without a value that can drift out of sync with reality.
     state.owned = currently_owned(&handle);
-    if let Ok(mut slot) = handle.state.lock() {
-        *slot = Some(state.clone());
+    let Ok(mut slot) = handle.state.lock() else { return };
+    // Re-check under the lock: a restart could have superseded us between
+    // the check above and taking this lock.
+    if handle.epoch.load(Ordering::SeqCst) != epoch {
+        return;
     }
+    *slot = Some(state.clone());
+    drop(slot);
     let _ = app.emit("backend://state", state);
 }
 
 /// True exactly when `handle.child` currently holds a child we spawned.
-/// Pulled out of `emit` so it is unit-testable without a live `AppHandle`.
-fn currently_owned(handle: &BackendHandle) -> bool {
+/// Pulled out of `emit` so it is unit-testable without a live `AppHandle`,
+/// and reused by `backend::teardown::shutdown_backend` as the single source
+/// of truth for "is there something here to kill" - not a separately
+/// tracked flag, which could go stale between the moment a child is stored
+/// and the next `emit` (see Finding 3's emit-vs-store note).
+pub(crate) fn currently_owned(handle: &BackendHandle) -> bool {
     handle.child.lock().map(|g| g.is_some()).unwrap_or(false)
 }
 
 /// Full lifecycle. Runs on a worker thread so it never blocks the UI.
+///
+/// Bumps the generation *before* spawning the worker thread (not inside
+/// it): by the time this returns, any older generation's next `current`
+/// check will already see the new value, no matter how that thread is
+/// scheduled.
 pub fn start(app: AppHandle) {
+    let epoch = app.state::<Arc<BackendHandle>>().supersede();
     std::thread::spawn(move || {
-        if let Err(message) = run(&app) {
+        if let Err(message) = run(&app, epoch) {
             let mut failed = BackendState::phase("failed");
             failed.message = Some(message);
             failed.log_tail = current_tail(&app, 20);
-            emit(&app, failed);
+            emit(&app, epoch, failed);
         }
     });
 }
@@ -98,8 +183,14 @@ fn current_tail(app: &AppHandle, n: usize) -> Vec<LogLine> {
         .unwrap_or_default()
 }
 
-fn run(app: &AppHandle) -> Result<(), String> {
-    emit(app, BackendState::phase("discovering"));
+/// `epoch` is the generation this run was started under (captured once, in
+/// `start`, before this function's thread even began). Every mutation of
+/// shared state - `emit`, storing the child, cleaning it up - re-checks it
+/// via `current`/`store_if_current`/`cleanup_if_current` and silently backs
+/// off the instant it goes stale, rather than trusting the check that got us
+/// into this function in the first place. See Finding 3.
+fn run(app: &AppHandle, epoch: usize) -> Result<(), String> {
+    emit(app, epoch, BackendState::phase("discovering"));
     let settings = DesktopSettings::load(app);
     let dev = cfg!(debug_assertions);
 
@@ -110,20 +201,25 @@ fn run(app: &AppHandle) -> Result<(), String> {
         st.base = Some(base.clone());
         st.message = Some("attached to a server started elsewhere".into());
         publish(app, &base)?;
-        emit(app, st);
+        emit(app, epoch, st);
         return Ok(());
     }
 
     // 2. Otherwise pick a port we can actually have.
     let mut last_err = String::new();
     for attempt in 0..SPAWN_ATTEMPTS {
+        let handle = app.state::<Arc<BackendHandle>>();
+        if !current(&handle, epoch) {
+            return Ok(()); // superseded before this attempt even began
+        }
+
         let port = if probe(settings.port) == Probe::Free {
             settings.port
         } else {
             pick_free_port().map_err(|e| format!("no free port: {e}"))?
         };
 
-        emit(app, BackendState::phase("spawning"));
+        emit(app, epoch, BackendState::phase("spawning"));
         let spec = build_launch_spec(&settings, port, dev)?;
         let child = match BackendChild::spawn(&spec) {
             Ok(c) => c,
@@ -149,30 +245,36 @@ fn run(app: &AppHandle) -> Result<(), String> {
                 break;
             }
         };
-        {
-            let handle = app.state::<Arc<BackendHandle>>();
-            *handle.child.lock().map_err(|_| "state poisoned")? = Some(child);
+
+        let handle = app.state::<Arc<BackendHandle>>();
+        if let Some(mut orphan) = store_if_current(&handle, epoch, child) {
+            // Superseded between spawning and storing: this process never
+            // entered shared state, so nobody else knows about it - we
+            // alone are responsible for killing it before we back off.
+            orphan.kill_tree();
+            return Ok(());
         }
 
-        match wait_ready(app, port) {
+        match wait_ready(app, epoch, port) {
             Ok(()) => {
+                if !current(&handle, epoch) {
+                    return Ok(());
+                }
                 let base = format!("http://127.0.0.1:{port}");
                 publish(app, &base)?;
                 let mut st = BackendState::phase("ready");
                 st.base = Some(base);
-                emit(app, st);
-                watch_for_exit(app.clone());
+                emit(app, epoch, st);
+                watch_for_exit(app.clone(), epoch);
                 return Ok(());
             }
             Err(e) => {
                 last_err = e;
-                let mut tail = Vec::new();
-                if let Ok(mut slot) = app.state::<Arc<BackendHandle>>().child.lock() {
-                    if let Some(c) = slot.as_mut() {
-                        tail = c.log_tail(40);
-                        c.kill_tree();
-                    }
-                    *slot = None;
+                if !current(&handle, epoch) {
+                    // Superseded mid-wait: whoever superseded us now owns
+                    // (or will shortly own) the child slot. Not ours to
+                    // touch - don't kill, don't clear, don't retry.
+                    return Ok(());
                 }
                 // Retry only when the captured output actually shows
                 // uvicorn/asyncio's own bind-failure signature - confirmed,
@@ -183,6 +285,7 @@ fn run(app: &AppHandle) -> Result<(), String> {
                 // *contains* "exited" (the old heuristic) is equally true
                 // of an ImportError - that must fail fast after one
                 // attempt, not be retried twice more for nothing.
+                let tail = cleanup_if_current(&handle, epoch);
                 if attempt + 1 < SPAWN_ATTEMPTS && looks_like_a_bind_race(&tail) {
                     continue;
                 }
@@ -193,12 +296,19 @@ fn run(app: &AppHandle) -> Result<(), String> {
     Err(last_err)
 }
 
-fn wait_ready(app: &AppHandle, port: u16) -> Result<(), String> {
+fn wait_ready(app: &AppHandle, epoch: usize, port: u16) -> Result<(), String> {
     let started = Instant::now();
     loop {
+        let handle = app.state::<Arc<BackendHandle>>();
+        if !current(&handle, epoch) {
+            // Superseded mid-wait. Returning Err here (rather than looping
+            // forever or returning Ok) routes back through `run`'s Err arm,
+            // which re-checks `current` itself before touching the slot -
+            // so this can't turn into a kill of a child we no longer own.
+            return Err("superseded by a newer run".to_string());
+        }
         // A child that already died will never become ready.
         {
-            let handle = app.state::<Arc<BackendHandle>>();
             let mut slot = handle.child.lock().map_err(|_| "state poisoned")?;
             if let Some(child) = slot.as_mut() {
                 if let Some(status) = child.try_wait() {
@@ -219,7 +329,7 @@ fn wait_ready(app: &AppHandle, port: u16) -> Result<(), String> {
         let mut st = BackendState::phase("waiting");
         st.elapsed_s = elapsed.as_secs();
         st.log_tail = current_tail(app, 20);
-        emit(app, st);
+        emit(app, epoch, st);
         std::thread::sleep(POLL_INTERVAL);
     }
 }
@@ -254,10 +364,13 @@ fn publish(app: &AppHandle, base: &str) -> Result<(), String> {
 
 /// Surface an unexpected death. Deliberately does NOT respawn in a loop: an
 /// ImportError would spin forever.
-fn watch_for_exit(app: AppHandle) {
+fn watch_for_exit(app: AppHandle, epoch: usize) {
     std::thread::spawn(move || loop {
         std::thread::sleep(Duration::from_secs(1));
         let handle = app.state::<Arc<BackendHandle>>();
+        if !current(&handle, epoch) {
+            return; // a restart has taken over; that run has its own watcher
+        }
         let dead = {
             let mut slot = match handle.child.lock() {
                 Ok(g) => g,
@@ -272,7 +385,7 @@ fn watch_for_exit(app: AppHandle) {
             let mut st = BackendState::phase("exited");
             st.message = Some("the backend process stopped".into());
             st.log_tail = current_tail(&app, 20);
-            emit(&app, st);
+            emit(&app, epoch, st);
             return;
         }
     });
@@ -393,5 +506,107 @@ mod tests {
     #[test]
     fn an_empty_tail_does_not_look_like_a_bind_race() {
         assert!(!looks_like_a_bind_race(&[]));
+    }
+
+    // -- Finding 3: the epoch guard --
+    //
+    // These exercise `store_if_current`/`cleanup_if_current` directly against
+    // a bare `BackendHandle`, the same pattern as `currently_owned`'s tests
+    // above: no live `AppHandle` needed, because the epoch-gating logic was
+    // deliberately factored out of `run`/`wait_ready` into plain functions
+    // over `&BackendHandle` for exactly this reason.
+
+    #[test]
+    fn a_superseded_epoch_does_not_clear_or_kill_the_slot() {
+        let handle = BackendHandle::default();
+        let my_epoch = handle.epoch.load(Ordering::SeqCst);
+        let child = BackendChild::spawn(&echo_spec("sleep 30")).expect("spawn a trivial child");
+        *handle.child.lock().unwrap() = Some(child);
+
+        // A restart (or a second start()) bumps the epoch out from under us.
+        handle.supersede();
+
+        let tail = cleanup_if_current(&handle, my_epoch);
+        assert!(
+            tail.is_empty(),
+            "a superseded cleanup must not read the child's log tail either"
+        );
+
+        let mut slot = handle.child.lock().unwrap();
+        let child = slot
+            .as_mut()
+            .expect("slot must remain populated: a superseded run must not clear it");
+        assert!(
+            child.try_wait().is_none(),
+            "a superseded run must not kill a child it no longer owns"
+        );
+        child.kill_tree(); // test cleanup only
+    }
+
+    #[test]
+    fn a_current_epoch_does_clear_and_kill_the_slot() {
+        // The control case: cleanup_if_current must still do its job when
+        // nothing has superseded it, or the guard above would be trivially
+        // satisfied by a function that never does anything.
+        let handle = BackendHandle::default();
+        let my_epoch = handle.epoch.load(Ordering::SeqCst);
+        let mut child = BackendChild::spawn(&echo_spec("sleep 30")).expect("spawn a trivial child");
+        let alive_before = child.try_wait().is_none();
+        assert!(alive_before);
+        *handle.child.lock().unwrap() = Some(child);
+
+        cleanup_if_current(&handle, my_epoch);
+
+        assert!(
+            handle.child.lock().unwrap().is_none(),
+            "an un-superseded cleanup must clear the slot"
+        );
+    }
+
+    #[test]
+    fn a_superseded_epoch_refuses_to_store_and_hands_the_child_back() {
+        let handle = BackendHandle::default();
+        let my_epoch = handle.epoch.load(Ordering::SeqCst);
+        handle.supersede(); // superseded before we ever tried to store
+
+        let child = BackendChild::spawn(&echo_spec("sleep 30")).expect("spawn a trivial child");
+        let mut handed_back =
+            store_if_current(&handle, my_epoch, child).expect("must hand the child back, not store it");
+
+        assert!(
+            handle.child.lock().unwrap().is_none(),
+            "a superseded store must never populate the shared slot"
+        );
+        // The caller (run()) is responsible for killing what it gets back -
+        // confirm the returned child is still the live one, not already dead.
+        assert!(handed_back.try_wait().is_none());
+        handed_back.kill_tree(); // test cleanup only
+    }
+
+    #[test]
+    fn a_current_epoch_does_store() {
+        let handle = BackendHandle::default();
+        let my_epoch = handle.epoch.load(Ordering::SeqCst);
+        let child = BackendChild::spawn(&echo_spec("sleep 30")).expect("spawn a trivial child");
+
+        assert!(
+            store_if_current(&handle, my_epoch, child).is_none(),
+            "an un-superseded store must succeed and keep the child"
+        );
+        let mut slot = handle.child.lock().unwrap();
+        assert!(slot.is_some());
+        slot.as_mut().unwrap().kill_tree(); // test cleanup only
+    }
+
+    #[test]
+    fn supersede_advances_current_and_invalidates_the_old_epoch() {
+        let handle = BackendHandle::default();
+        let e1 = handle.epoch.load(Ordering::SeqCst);
+        assert!(current(&handle, e1));
+
+        let e2 = handle.supersede();
+        assert_ne!(e1, e2);
+        assert!(!current(&handle, e1), "the old epoch must no longer read as current");
+        assert!(current(&handle, e2), "the new epoch must read as current");
     }
 }
