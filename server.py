@@ -1,9 +1,12 @@
 """FastAPI app: doc/state/status/audio/wallpaper API + static player, novel.txt mtime polling."""
+import argparse
 import asyncio
 import contextlib
 import hashlib
 import json
 import logging
+import os
+import sys
 import threading
 from contextlib import asynccontextmanager
 from dataclasses import asdict
@@ -453,12 +456,53 @@ def create_app(data_dir: Path, worker, audio_wait: float = 30.0, *, manager,
     return app
 
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
+    """The sidecar contract. Every default reproduces the pre-flag behavior, so
+    `python server.py` and start.sh are unaffected."""
+    ap = argparse.ArgumentParser(prog="novel-tts")
+    ap.add_argument("--host", default=os.environ.get("NOVEL_TTS_HOST", "127.0.0.1"))
+    ap.add_argument("--port", type=int,
+                    default=int(os.environ.get("NOVEL_TTS_PORT", "8765")))
+    ap.add_argument("--data-dir", default=os.environ.get("NOVEL_TTS_DATA_DIR"),
+                    help="directory holding novel.txt, state.json, cache/, "
+                         "images/, voices/ and wallpaper (default: alongside server.py)")
+    ap.add_argument("--cors-origin", action="append", default=[],
+                    help="extra allowed Origin; repeatable")
+    ap.add_argument("--exit-on-stdin-close", action="store_true",
+                    help="exit when stdin reaches EOF (host-process watchdog)")
+    return ap
+
+
+def _watch_stdin():
+    """Exit when the parent closes our stdin.
+
+    This is the only teardown mechanism that reaches a Python process running
+    inside WSL2, where a Windows job object has no jurisdiction: the pipe closes
+    when the host process dies for any reason.
+    """
+    def wait():
+        try:
+            while sys.stdin.readline():
+                pass
+        except Exception:
+            pass
+        log.info("stdin closed, exiting")
+        os._exit(0)
+    threading.Thread(target=wait, daemon=True, name="stdin-watchdog").start()
+
+
+def main(argv=None):
     import uvicorn
     from tts import EngineManager, TTSWorker
 
+    args = build_parser().parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    root = Path(__file__).parent
+    # One `root` feeds four consumers that are NOT derived from each other:
+    # the state peek, EngineManager (which owns voices/), TTSWorker (cache/),
+    # and create_app (novel.txt, state.json, images/, wallpaper). Keeping them
+    # on a single variable is what keeps one data directory coherent.
+    root = Path(args.data_dir).expanduser().resolve() if args.data_dir else Path(__file__).parent
+    root.mkdir(parents=True, exist_ok=True)
     # peek at the persisted engine/mode so a "cpu"-pinned engine never even
     # creates a CUDA context (create_app re-validates and applies it)
     try:
@@ -472,9 +516,11 @@ def main():
     except ValueError:                             # e.g. qwen-tts uninstalled since
         manager = EngineManager(root, engine_id="kokoro", mode=mode)
     worker = TTSWorker(root / "cache", manager)
-    app = create_app(root, worker, manager=manager)
-    log.info("novel-tts ready: http://localhost:8765")
-    uvicorn.run(app, host="127.0.0.1", port=8765, log_level="warning")
+    app = create_app(root, worker, manager=manager, cors_origins=args.cors_origin)
+    if args.exit_on_stdin_close:
+        _watch_stdin()
+    log.info("novel-tts ready: http://%s:%d", args.host, args.port)
+    uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
 
 
 if __name__ == "__main__":
