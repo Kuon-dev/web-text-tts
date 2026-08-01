@@ -396,6 +396,7 @@ class PlayerEngine {
    *  WebView2 do not reliably run beforeunload, so without this a quit
    *  mid-chapter loses up to SAVE_DEBOUNCE_MS of progress. */
   flushPosition() {
+    if (!this.doc.chunks.length) return
     clearTimeout(this.saveTimer)
     fetch(apiUrl("/api/state"), {
       method: "POST",
