@@ -1,0 +1,9 @@
+/* Tailwind v4's automatic candidate scanner does not follow Vite's `@`
+ * resolve-alias across the workspace boundary — it only walks relative to
+ * this file. Re-export the shared stylesheet, then explicitly tell the
+ * scanner where the actual component source lives so it discovers the
+ * utility classes used in frontend/src/components/**, not just the literal
+ * rules authored in index.css itself.
+ */
+@import "../../frontend/src/index.css";
+@source "../../frontend/src";
