@@ -61,10 +61,9 @@ real-model tests are marked `-m slow`.
 ### UI (React + Vite + shadcn/ui, in `frontend/`)
 
     export PATH=~/node22/bin:$PATH
-    cd frontend
-    npm install            # once
-    npm run build          # emits the served app into ../static
-    npm run dev            # live-reload dev server on :5173, proxies /api to :8765
+    npm install                  # once, from the repo root (npm workspace: frontend + desktop)
+    npm run build -w frontend    # emits the served app into ../static
+    npm run dev -w frontend      # live-reload dev server on :5173, proxies /api to :8765
 
 The server serves the prebuilt `static/` — Node is only needed to change the UI.
 
