@@ -492,9 +492,32 @@ misses.
 | `build.target` | `chrome105` on Windows, `safari16` on macOS — **not** the template's `safari13`; `index.css` needs `oklch()`/`color-mix()` |
 | `envPrefix` | `["VITE_", "TAURI_ENV_*"]` |
 
-Tailwind v4 discovers classes through the module graph, so importing `@/index.css` and
-the shared components from `desktop/src/main.tsx` is sufficient. If a class ever goes
-missing, add `@source "../../frontend/src";`.
+**Tailwind's scanner does not follow the `@` alias across the workspace boundary.** The
+alias resolves JS/TS imports; it has no CSS-scanning equivalent, so the desktop build
+emits almost no utility classes (measured: 8 selectors versus the web build's 311) and
+the app renders unstyled. The desktop workspace therefore needs its own CSS entry that
+re-exports the shared stylesheet and adds an explicit source directive:
+
+```css
+/* desktop/src/index.css */
+@import "../../frontend/src/index.css";
+@source "../../frontend/src";
+```
+
+`@source` paths resolve relative to the CSS file containing them. Verify by comparing the
+built desktop CSS against `static/assets/*.css` — selector count, rule count and byte size
+should be in the same ballpark. An earlier draft of this spec claimed the following, which
+is wrong and was disproved during implementation:
+
+> ~~Tailwind v4 discovers classes through the module graph, so importing `@/index.css` and
+> the shared components from `desktop/src/main.tsx` is sufficient; no `content` globs
+> needed. If a class ever goes missing, add `@source "../../frontend/src";`.~~
+
+`desktop/package.json` must also declare **`shadcn`** — `frontend/src/index.css` does
+`@import "shadcn/tailwind.css";`, so omitting it leaves the build depending on npm
+hoisting luck. And `frontend/package-lock.json` must be **deleted** once `frontend` is a
+workspace member: the root lockfile is authoritative, and a stale nested one invites a
+`cd frontend && npm ci` that installs a diverging dependency set.
 
 ### Dependencies
 

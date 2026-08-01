@@ -857,6 +857,7 @@ Runtime deps are declared explicitly rather than relying on npm hoisting: `index
     "radix-ui": "^1.6.2",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
+    "shadcn": "^4.13.0",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4.3.2",
@@ -970,21 +971,54 @@ Same head as `frontend/index.html`, including the favicon and the `theme-color` 
 </html>
 ```
 
+- [ ] **Step 5b: Create `desktop/src/index.css` — required, not optional**
+
+Tailwind's class scanner does **not** follow the Vite `@` alias across the workspace
+boundary. The alias resolves JS/TS imports; there is no CSS-scanning equivalent, so
+without an explicit source directive the desktop build emits 8 selectors where the web
+build emits 311, and the app renders completely unstyled.
+
+```css
+@import "../../frontend/src/index.css";
+@source "../../frontend/src";
+```
+
+`@source` paths resolve relative to the CSS file containing them, so from `desktop/src/`
+this lands on `<repo>/frontend/src`.
+
+**Verify with numbers.** After building, compare `desktop/dist/assets/*.css` against
+`static/assets/*.css`: selector count, rule count and byte size should be in the same
+ballpark, and `.flex`, `.items-center`, `rounded-lg` and a `data-[state` selector must all
+be present. A build that succeeds proves nothing here — only the selector count does.
+
 - [ ] **Step 6: Create `desktop/src/main.tsx`**
 
-For now this is the web entry point verbatim; Task 12 replaces the render call with the Boot gate.
+For now this is the web entry point; Task 12 replaces the render call with the Boot gate.
+Note it imports the **desktop-local** stylesheet from Step 5b, not `@/index.css`.
 
 ```tsx
 import { StrictMode } from "react"
 import { createRoot } from "react-dom/client"
 import App from "@/App"
-import "@/index.css"
+import "@desktop/index.css"
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <App />
   </StrictMode>,
 )
+```
+
+- [ ] **Step 6b: Delete `frontend/package-lock.json`**
+
+Once `frontend` is a workspace member the root lockfile is authoritative. A stale nested
+lockfile invites a future `cd frontend && npm ci` to install an independently-pinned,
+diverging dependency set — silently defeating the shared-`node_modules` model this whole
+task depends on.
+
+```bash
+git rm frontend/package-lock.json
+npm install   # confirm the root lockfile still resolves cleanly
 ```
 
 - [ ] **Step 7: Update `.gitignore`**
