@@ -22,7 +22,16 @@ export function Boot({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
-  if (state && (state.phase === "ready" || state.phase === "attached")) return <>{children}</>
+  if (state && (state.phase === "ready" || state.phase === "attached")) {
+    // Belt-and-braces for the Rust-side `window.eval` in health.rs's
+    // `publish()`: Tauri can start navigating the window before `setup`
+    // (and thus that eval) runs, so the injection can land on a
+    // not-yet-committed document and be silently discarded — see Finding 2.
+    // Setting it here, from state the frontend already receives over the
+    // `backend://state` event, removes the race instead of narrowing it.
+    ;(globalThis as { __API_BASE__?: string }).__API_BASE__ = state.base ?? ""
+    return <>{children}</>
+  }
 
   const failed = state?.phase === "failed" || state?.phase === "exited"
   const slow = (state?.elapsedS ?? 0) > 20
