@@ -28,6 +28,11 @@ pub fn run() {
             backend::health::start(app.handle().clone());
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| match event {
+            tauri::RunEvent::ExitRequested { .. } => backend::teardown::shutdown(app),
+            tauri::RunEvent::Exit => backend::teardown::shutdown(app),
+            _ => {}
+        });
 }
