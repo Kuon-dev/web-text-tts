@@ -30,6 +30,7 @@ export function installDesktopGlue(onPaste: () => void) {
   void listen("menu://prev", () => player.jump(player.getSnapshot().idx - 1))
   void listen("menu://next", () => player.jump(player.getSnapshot().idx + 1))
   void listen("menu://paste", onPaste)
+  void listen("menu://restart-backend", () => restartBackend())
 
   document.addEventListener(
     "click",

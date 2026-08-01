@@ -39,20 +39,35 @@ pub fn build(app: &AppHandle<Wry>) -> tauri::Result<Menu<Wry>> {
         .close_window()
         .build()?;
 
+    // These three deliberately avoid the "obvious" combos:
+    //   - Plain CmdOrCtrl+Space is macOS's systemwide Spotlight hotkey,
+    //     registered at the WindowServer level ahead of any app's menu
+    //     dispatch, so it would never reach this app on a stock Mac.
+    //     CmdOrCtrl+Alt+Space is likewise claimed (Finder's Spotlight-window
+    //     search). CmdOrCtrl+Shift+Space is unclaimed by macOS.
+    //   - Plain CmdOrCtrl+Left/Right is the standard Cocoa/WebKit text-editing
+    //     binding for "caret to start/end of line" (Option+Left/Right is the
+    //     word-wise binding) — exactly the mechanism that makes the Edit
+    //     submenu mandatory for Cmd+C/V, so a custom menu item on that combo
+    //     would swallow it before it reaches the paste textarea's caret.
+    //     CmdOrCtrl+Alt+Left/Right is not a standard macOS text-editing or
+    //     systemwide binding (Mission Control's space-switching uses plain
+    //     Control+Left/Right, not Cmd+Alt), so it's free.
+    // Do not "simplify" these back to the bare combos above.
     let playback = SubmenuBuilder::new(app, "Playback")
         .item(
             &MenuItemBuilder::with_id("play-pause", "Play / Pause")
-                .accelerator("CmdOrCtrl+Space")
+                .accelerator("CmdOrCtrl+Shift+Space")
                 .build(app)?,
         )
         .item(
             &MenuItemBuilder::with_id("prev", "Previous Sentence")
-                .accelerator("CmdOrCtrl+Left")
+                .accelerator("CmdOrCtrl+Alt+Left")
                 .build(app)?,
         )
         .item(
             &MenuItemBuilder::with_id("next", "Next Sentence")
-                .accelerator("CmdOrCtrl+Right")
+                .accelerator("CmdOrCtrl+Alt+Right")
                 .build(app)?,
         )
         .build()?;
