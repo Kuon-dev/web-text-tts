@@ -57,15 +57,19 @@ class KokoroEngine(TTSEngine):
     def __init__(self, mode: str = "auto"):
         import torch
         gpu = torch.cuda.is_available()
+        # Before super(): DevicePolicy's constructor calls set_mode, and
+        # set_mode("cpu") invokes release_gpu (device.py) - so this callback
+        # can fire while we are still inside __init__. Whatever it touches
+        # has to exist by then. An earlier comment here claimed pinned modes
+        # never reach it; they do, and a persisted device_mode of "cpu"
+        # crashed the server on startup.
+        self._pipelines = {}
         super().__init__(DevicePolicy(
             allow_cpu=True, min_gpu_speed=GPU_MIN_SPEED,
             min_free_bytes=GPU_MIN_FREE_BYTES, mode=mode, gpu_available=gpu,
             release_gpu=self._release_gpu,
-            # pinned modes never call this: "cpu" must not create a CUDA
-            # context, "gpu" ignores the gate (DevicePolicy only gates auto)
         ))
         log.info("Kokoro gpu_available=%s mode=%s", gpu, self.policy.mode)
-        self._pipelines = {}
 
     def voices(self):
         out = []

@@ -1,3 +1,6 @@
+import sys
+import types
+
 from tts.kokoro import PRONUNCIATION_V, VOICES, KokoroEngine
 
 
@@ -33,3 +36,27 @@ def test_is_speakable_stays_ascii_only():
     assert not e.is_speakable("彼女は頷いた。")  # silencing kanji is correct HERE
     assert not e.is_speakable("* * *")
     assert e.is_speakable("Hello.")
+
+
+def test_pinned_cpu_construction_does_not_touch_unset_state(monkeypatch):
+    """DevicePolicy.__init__ calls set_mode, and set_mode("cpu") invokes the
+    release_gpu callback — so _release_gpu runs BEFORE KokoroEngine.__init__
+    has finished its own setup. Anything the callback touches must already
+    exist by then. Regression: _pipelines was assigned after super().__init__,
+    so a persisted device_mode of "cpu" crashed the server on startup.
+
+    Uses a stub torch because the fast suite runs without it; the other tests
+    here skip __init__ entirely, which is why this ordering was never covered.
+    """
+    fake = types.ModuleType("torch")
+    fake.cuda = types.SimpleNamespace(
+        is_available=lambda: False,
+        is_initialized=lambda: False,
+        empty_cache=lambda: None,
+    )
+    monkeypatch.setitem(sys.modules, "torch", fake)
+
+    engine = KokoroEngine(mode="cpu")
+
+    assert engine.policy.mode == "cpu"
+    assert engine._pipelines == {}
