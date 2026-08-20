@@ -352,8 +352,17 @@ the worker grouping pending chunks (`_pick_batch`). Qwen3 sets `max_batch = 32`
 — 8.90x, chosen over the faster 48 (11.72x) because 17.0 of 22.5 GiB usable
 leaves no room for chunks longer than the ~8s ones benchmarked;
 Kokoro stays at 1 and is byte-for-byte unaffected. Verified end-to-end through
-the running server: 16 chunks, 168.6s of audio in 45.7s = **3.69x**, zero
-failures, and `auto` mode now runs without a single demotion.
+the running server: **72 chunks, 1013.0s of audio in 96.4s = 10.51x**, zero
+failures — better than the isolated batch-32 figure, because the worker keeps
+the pipeline full. `auto` mode runs without a single demotion.
+
+Batch width only pays if there are chunks to fill it. The same test with a
+16-chunk document measures 4.38x, because a 32-wide batch cannot form from 16
+chunks. Two limits shape what `_pick_batch` can gather: `LOOKAHEAD_SECONDS`
+(180s, roughly 12 chunks of typical length) bounds the priority window, and
+below `FILL_MIN_SPEED` (4.0x) the background-fill tier is throttled to one
+chunk per `FILL_PROBE_S`. Raising `max_batch` past what those tiers supply is
+inert, so re-tune them together or not at all.
 
 Two related fixes landed with it:
 
@@ -367,5 +376,5 @@ Two related fixes landed with it:
 
 Still open: `QWEN_MIN_SPEED = 0.8` remains calibrated against the unverified
 4060 figure. It now happens to sit between the serial (0.62x) and batched
-(3.69x) rates, which is survivable, but it should be re-derived from measured
+(10.51x) rates, which is survivable, but it should be re-derived from measured
 hardware rather than inherited.
