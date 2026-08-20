@@ -28,6 +28,10 @@ class TTSEngine(ABC):
     id: ClassVar[str]
     label: ClassVar[str]
     supported_modes: ClassVar[tuple[str, ...]] = DEVICE_MODES
+    # >1 lets the worker hand several chunks to one model call. Batch-1
+    # decode leaves most GPUs idle between tiny kernels; engines that
+    # gain from wider batches raise this (see tts/qwen.py).
+    max_batch: ClassVar[int] = 1
     default_voice: ClassVar[str]
     sample_rate: int = 24000
 
@@ -36,9 +40,9 @@ class TTSEngine(ABC):
 
     def synthesize(self, text: str, voice: str, urgent: bool = False) -> np.ndarray:
         if not self.is_speakable(text):
-            # scene separators ("***", "◆ ◆ ◆") are a narrator pause, not input
-            return np.zeros(int(0.4 * self.sample_rate), dtype=np.float32)
+            return self._silence()
         device = self.policy.pick(urgent)
+        self.prepare(device, voice)
         start = time.monotonic()
         try:
             audio = self._generate(text, voice, device)
@@ -52,6 +56,59 @@ class TTSEngine(ABC):
         if device == "cuda" and wall >= 1.0 and len(audio) >= 3 * self.sample_rate:
             self.policy.measured((len(audio) / self.sample_rate) / wall)
         return audio
+
+    def prepare(self, device: str, voice: str) -> None:
+        """Load whatever `_generate` would otherwise build lazily.
+
+        Called after the device is chosen but BEFORE the clock starts, so a
+        one-off model load is never charged to x-realtime. Charging it demoted
+        healthy GPUs on their first chunk (a cold Kokoro measured 0.59x on an
+        idle L4, against a 1.5x floor), and the demotion dropped the pipeline,
+        so every retry paid the load again.
+        """
+
+    def _silence(self) -> np.ndarray:
+        """Scene separators ("***", "◆ ◆ ◆") are a narrator pause, not input."""
+        return np.zeros(int(0.4 * self.sample_rate), dtype=np.float32)
+
+    def synthesize_many(self, texts: list[str], voice: str,
+                        urgent: bool = False) -> list[np.ndarray]:
+        if self.max_batch <= 1:
+            return [self.synthesize(t, voice, urgent=urgent) for t in texts]
+        out: list[np.ndarray | None] = [None] * len(texts)
+        batch = []
+        for i, text in enumerate(texts):
+            if self.is_speakable(text):
+                batch.append((i, text))
+            else:
+                out[i] = self._silence()
+        if not batch:
+            return out
+        device = self.policy.pick(urgent)
+        self.prepare(device, voice)
+        start = time.monotonic()
+        try:
+            audio = self._generate_batch([t for _, t in batch], voice, device)
+        except EngineUnavailable:
+            raise                      # a gate, not a generation failure
+        except Exception as exc:
+            if device == "cuda":
+                self.policy.failed(str(exc))
+            raise
+        wall = time.monotonic() - start
+        for (i, _), a in zip(batch, audio):
+            out[i] = a
+        samples = sum(len(a) for a in audio)
+        # same guards as synthesize(), on the batch as a whole: a wide batch is
+        # the throughput the worker actually gets, so that is what the policy
+        # judges the GPU on.
+        if device == "cuda" and wall >= 1.0 and samples >= 3 * self.sample_rate:
+            self.policy.measured((samples / self.sample_rate) / wall)
+        return out
+
+    def _generate_batch(self, texts: list[str], voice: str,
+                        device: str) -> list[np.ndarray]:
+        return [self._generate(t, voice, device) for t in texts]
 
     @abstractmethod
     def _generate(self, text: str, voice: str, device: str) -> np.ndarray: ...

@@ -17,7 +17,8 @@ def fake_qwen(monkeypatch):
 
         def generate_custom_voice(self, *, text, language, speaker, instruct=None):
             calls["custom"].append((text, language, speaker, instruct))
-            return [np.zeros(24000, dtype=np.float32)], 24000
+            n = len(text) if isinstance(text, list) else 1
+            return [np.zeros(24000, dtype=np.float32) for _ in range(n)], 24000
 
         def generate_voice_clone(self, *, text, ref_audio, language):
             calls["clone"].append((text, ref_audio, language))
@@ -93,3 +94,37 @@ def test_voices_are_presets_plus_clones(fake_qwen, tmp_path):
     ids = [v.id for v in voices]
     assert "Ryan" in ids and "Ono_Anna" in ids and len(ids) == 10
     assert voices[-1].group == "Cloned"
+
+
+def test_qwen_declares_a_batch_width(fake_qwen, tmp_path):
+    assert make_engine(fake_qwen, tmp_path).max_batch == 8
+
+
+def test_preset_batch_reaches_the_model_as_a_single_call(fake_qwen, tmp_path):
+    e = make_engine(fake_qwen, tmp_path)
+
+    out = e.synthesize_many(["one.", "two.", "three."], "Ryan")
+
+    assert len(out) == 3
+    assert len(fake_qwen["custom"]) == 1                     # not three calls
+    assert fake_qwen["custom"][0][0] == ["one.", "two.", "three."]
+
+
+def test_clone_voices_fall_back_to_one_call_each(fake_qwen, tmp_path):
+    import tests.test_voices as tv
+    e = make_engine(fake_qwen, tmp_path)
+    voice = e._clones.add(tv.clip_bytes(), name="Narrator A")
+
+    out = e.synthesize_many(["one.", "two."], voice.id)
+
+    assert len(out) == 2
+    assert len(fake_qwen["clone"]) == 2      # clone API takes one ref clip at a time
+
+
+def test_prepare_loads_the_variant_before_the_clock_starts(fake_qwen, tmp_path):
+    e = make_engine(fake_qwen, tmp_path)
+
+    e.prepare("cuda", "Ryan")
+
+    assert fake_qwen["loaded"] == ["Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"]
+    assert e.info()["cold"] is False

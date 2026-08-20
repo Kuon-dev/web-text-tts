@@ -100,6 +100,9 @@ class KokoroEngine(TTSEngine):
             self._pipelines[key] = pipe
         return self._pipelines[key]
 
+    def prepare(self, device, voice):
+        self._pipeline(voice, device)
+
     def _generate(self, text, voice, device):
         import torch
         start = time.monotonic()

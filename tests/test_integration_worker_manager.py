@@ -75,3 +75,42 @@ def test_worker_generates_after_manager_swap_while_idle(tmp_path):
 
     assert worker.request(cid_b).wait(5.0)
     assert worker.path(cid_b).exists()
+
+
+class BatchingToyEngine(ToyEngine):
+    """A batching engine (Qwen3's shape) sitting behind the real manager."""
+    max_batch = 4
+
+    def __init__(self, engine_id):
+        super().__init__(engine_id)
+        self.batches = []
+
+    def _generate_batch(self, texts, voice, device):
+        self.batches.append(list(texts))
+        return [np.zeros(240, dtype=np.float32) for _ in texts]
+
+
+def test_manager_exposes_the_engines_batch_width(tmp_path):
+    """The worker asks the manager, not the engine. If the manager does not
+    forward max_batch, a batching engine silently runs one chunk at a time."""
+    engine = BatchingToyEngine("a")
+    manager = EngineManager(tmp_path, "a", factory=lambda *a, **k: engine)
+
+    assert manager.max_batch == 4
+
+
+def test_batches_flow_through_the_real_manager(tmp_path):
+    engine = BatchingToyEngine("a")
+    manager = EngineManager(tmp_path, "a", factory=lambda *a, **k: engine)
+    chunks = [Chunk(text=f"Line {i}.", para=i) for i in range(8)]
+    worker = TTSWorker(tmp_path, manager)
+    worker.set_doc(chunks, manager.chunk_namespace("v"), voice="v")
+    cids = [chunk_id(manager.chunk_namespace("v"), c.text) for c in chunks]
+
+    import time
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline and not all(worker.path(c).exists() for c in cids):
+        time.sleep(0.02)
+
+    assert all(worker.path(c).exists() for c in cids)
+    assert max(len(b) for b in engine.batches) > 1

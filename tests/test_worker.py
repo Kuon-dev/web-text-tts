@@ -10,6 +10,7 @@ from tts import EngineUnavailable, TTSWorker
 
 class FakeEngine:
     sample_rate = 24000
+    max_batch = 1
 
     def __init__(self, fail_texts=()):
         self.fail_texts = set(fail_texts)
@@ -20,6 +21,9 @@ class FakeEngine:
         if text in self.fail_texts:
             raise RuntimeError("boom")
         return np.zeros(1200, dtype=np.float32)
+
+    def synthesize_many(self, texts, voice, urgent=False):
+        return [self.synthesize(t, voice, urgent=urgent) for t in texts]
 
 
 def wait_until(pred, timeout=5.0):
@@ -240,3 +244,68 @@ def test_engine_receives_bare_voice_not_namespace(tmp_path):
     cid = chunk_id("kokoro\x002\x00af_heart", chunks[0].text)
     assert wait_until(lambda: worker.path(cid).exists())
     assert engine.voices == ["af_heart"]
+
+
+class BatchFakeEngine(FakeEngine):
+    """max_batch>1, like Qwen3: records the shape of every batch it is handed."""
+    max_batch = 4
+
+    def __init__(self, fail_texts=(), batch_fails=False):
+        super().__init__(fail_texts)
+        self.batches = []
+        self.batch_fails = batch_fails
+
+    def synthesize_many(self, texts, voice, urgent=False):
+        self.batches.append(list(texts))
+        if self.batch_fails:
+            raise RuntimeError("whole batch exploded")
+        return [self.synthesize(t, voice, urgent=urgent) for t in texts]
+
+
+def test_batching_engine_is_handed_several_chunks_at_once(tmp_path):
+    chunks = make_chunks(8)
+    engine = BatchFakeEngine()
+    worker = TTSWorker(tmp_path, engine)
+    worker.set_doc(chunks, "af_heart")
+    cids = [chunk_id("af_heart", c.text) for c in chunks]
+
+    assert wait_until(lambda: all(worker.path(c).exists() for c in cids))
+    assert engine.batches, "worker never used the batch entry point"
+    assert max(len(b) for b in engine.batches) > 1
+    assert all(len(b) <= engine.max_batch for b in engine.batches)
+
+
+def test_a_single_item_engine_is_never_batched(tmp_path):
+    chunks = make_chunks(4)
+    engine = FakeEngine()
+    worker = TTSWorker(tmp_path, engine)
+    worker.set_doc(chunks, "af_heart")
+    cids = [chunk_id("af_heart", c.text) for c in chunks]
+
+    assert wait_until(lambda: all(worker.path(c).exists() for c in cids))
+    assert engine.calls == [c.text for c in chunks]     # order preserved, one at a time
+
+
+def test_urgent_request_is_generated_on_its_own(tmp_path):
+    chunks = make_chunks(8)
+    engine = BatchFakeEngine()
+    worker = TTSWorker(tmp_path, engine, fill_min_speed=0.0)
+    worker.set_doc(chunks, "af_heart", position=7)
+    urgent_cid = chunk_id("af_heart", chunks[7].text)
+
+    assert worker.request(urgent_cid).wait(5.0)
+    assert engine.batches[0] == [chunks[7].text]       # served alone, first
+
+
+def test_a_failed_batch_retries_each_item_alone(tmp_path):
+    """One bad chunk must not fail the seven good ones sharing its batch."""
+    chunks = make_chunks(4)
+    engine = BatchFakeEngine(fail_texts={chunks[2].text})
+    worker = TTSWorker(tmp_path, engine)
+    worker.set_doc(chunks, "af_heart")
+    cids = [chunk_id("af_heart", c.text) for c in chunks]
+    good = [c for i, c in enumerate(cids) if i != 2]
+
+    assert wait_until(lambda: all(worker.path(c).exists() for c in good))
+    assert not worker.path(cids[2]).exists()
+    assert wait_until(lambda: cids[2] in worker.status()["failed"])

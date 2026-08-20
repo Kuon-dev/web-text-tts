@@ -123,11 +123,15 @@ class TTSWorker:
         }
 
     # -- worker loop ---------------------------------------------------------
-    def _pick(self):
-        """Under lock: (cid, text, urgent) to generate next, or None."""
+    def _pick(self, exclude=frozenset()):
+        """Under lock: (cid, text, urgent) to generate next, or None.
+
+        `exclude` holds cids already claimed by the batch being assembled.
+        """
         by_id = dict(zip(self._cids, (c.text for c in self._chunks)))
         for cid in self._requests:
-            if (cid in by_id and not self.path(cid).exists()
+            if (cid in by_id and cid not in exclude
+                    and not self.path(cid).exists()
                     and self._attempts.get(cid, 0) < MAX_ATTEMPTS):
                 return cid, by_id[cid], True
         self._requests = [c for c in self._requests
@@ -142,6 +146,7 @@ class TTSWorker:
         for idx in range(self._position, end):
             cid = self._cids[idx]
             if (not self.path(cid).exists() and cid not in self._failed
+                    and cid not in exclude
                     and self._attempts.get(cid, 0) < MAX_ATTEMPTS):
                 return cid, self._chunks[idx].text, False
         probing = self._speed < self._fill_min_speed
@@ -158,44 +163,108 @@ class TTSWorker:
                 break
             cid = self._cids[idx]
             if (not self.path(cid).exists() and cid not in self._failed
+                    and cid not in exclude
                     and self._attempts.get(cid, 0) < MAX_ATTEMPTS):
                 if probing:
                     self._last_fill_probe = now
                 return cid, self._chunks[idx].text, False
         return None
 
-    def _run(self):
-        while True:
-            with self._cond:
-                job = self._pick()
-                if job is None:
-                    self._cond.wait(timeout=1.0)
-                    continue
-                cid, text, urgent = job
-                voice = self._voice
-                self._attempts[cid] = self._attempts.get(cid, 0) + 1
+    def _pick_batch(self, limit: int):
+        """Under lock: ([(cid, text), ...], urgent) or None.
+
+        An urgent chunk is returned alone: somebody is waiting on it, and a
+        wide batch would make them wait for its slowest member too.
+        """
+        first = self._pick()
+        if first is None:
+            return None
+        cid, text, urgent = first
+        jobs = [(cid, text)]
+        if urgent or limit <= 1:
+            return jobs, urgent
+        claimed = {cid}
+        while len(jobs) < limit:
+            nxt = self._pick(exclude=claimed)
+            if nxt is None or nxt[2]:      # nothing left, or an urgent arrived
+                break
+            jobs.append((nxt[0], nxt[1]))
+            claimed.add(nxt[0])
+        return jobs, False
+
+    def _write(self, cid: str, audio, sr: int) -> None:
+        tmp = self.path(cid).with_suffix(".tmp")
+        sf.write(tmp, audio, sr, format="WAV", subtype="PCM_16")
+        tmp.rename(self.path(cid))
+
+    def _settle(self, cid: str) -> None:
+        """Under lock: a chunk landed."""
+        self._attempts.pop(cid, None)
+        self._blocked = None
+        if cid in self._events:
+            self._events[cid].set()
+
+    def _retry_individually(self, jobs, voice) -> None:
+        """A batch call died. Re-run its items one at a time so a single bad
+        chunk cannot fail the others that happened to share its batch."""
+        for cid, text in jobs:
             try:
-                sr = self._engine.sample_rate
-                start = time.monotonic()
-                audio = self._engine.synthesize(text, voice, urgent=urgent)
-                wall = time.monotonic() - start
-                tmp = self.path(cid).with_suffix(".tmp")
-                sf.write(tmp, audio, sr, format="WAV", subtype="PCM_16")
-                tmp.rename(self.path(cid))
-                self._enforce_cache_cap()
+                audio = self._engine.synthesize(text, voice)
+                self._write(cid, audio, self._engine.sample_rate)
                 with self._cond:
-                    if wall >= 0.3 and len(audio) >= sr:
-                        self._speed = (len(audio) / sr) / wall
-                    self._attempts.pop(cid, None)
-                    self._blocked = None
-                    if cid in self._events:
-                        self._events[cid].set()
+                    self._settle(cid)
             except EngineUnavailable as exc:
                 with self._cond:
                     self._blocked = str(exc)
-                    self._attempts[cid] = self._attempts.get(cid, 1) - 1  # not an attempt
+                    self._attempts[cid] = self._attempts.get(cid, 1) - 1
+                return
+            except Exception:
+                log.exception("chunk %s failed (attempt %d)", cid[:8],
+                              self._attempts.get(cid, 0))
+                with self._cond:
+                    if self._attempts.get(cid, 0) >= MAX_ATTEMPTS:
+                        self._failed.add(cid)
+        self._enforce_cache_cap()
+
+    def _run(self):
+        while True:
+            with self._cond:
+                picked = self._pick_batch(self._engine.max_batch)
+                if picked is None:
+                    self._cond.wait(timeout=1.0)
+                    continue
+                jobs, urgent = picked
+                voice = self._voice
+                for cid, _ in jobs:
+                    self._attempts[cid] = self._attempts.get(cid, 0) + 1
+            try:
+                sr = self._engine.sample_rate
+                start = time.monotonic()
+                audio = self._engine.synthesize_many([t for _, t in jobs], voice,
+                                                     urgent=urgent)
+                wall = time.monotonic() - start
+                for (cid, _), a in zip(jobs, audio):
+                    self._write(cid, a, sr)
+                self._enforce_cache_cap()
+                total = sum(len(a) for a in audio)
+                with self._cond:
+                    # x-realtime of the batch as a whole: that is the rate the
+                    # reader is actually fed at.
+                    if wall >= 0.3 and total >= sr:
+                        self._speed = (total / sr) / wall
+                    for cid, _ in jobs:
+                        self._settle(cid)
+            except EngineUnavailable as exc:
+                with self._cond:
+                    self._blocked = str(exc)
+                    for cid, _ in jobs:
+                        self._attempts[cid] = self._attempts.get(cid, 1) - 1  # not an attempt
                     self._cond.wait(timeout=self._unavailable_wait)
             except Exception:
+                if len(jobs) > 1:
+                    self._retry_individually(jobs, voice)
+                    continue
+                cid = jobs[0][0]
                 log.exception("chunk %s failed (attempt %d)", cid[:8], self._attempts.get(cid, 0))
                 with self._cond:
                     if self._attempts.get(cid, 0) >= MAX_ATTEMPTS:

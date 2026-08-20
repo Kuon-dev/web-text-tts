@@ -304,3 +304,54 @@ and transformers==4.57.3, kokoro requires torch with no version pin). Blockers
 this leaves open (reconciled by Task 12 on the 4060 box): measured sample rate
 (engine assumes 24000), x-realtime, peak VRAM, load time, and the exact
 voice-clone call signature (engine implements the documented `generate_voice_clone`).
+
+## Addendum: first hardware benchmark + batched decode (2026-08-20)
+
+Task 1's deferred measurements were finally taken, on an **NVIDIA L4 (23GB,
+72W, Ada)** rather than the 4060 — the first time this engine ran on measured
+hardware. The headline: **the "~1–2x realtime" figure the design was built on
+was never true.** It was third-party hearsay, and `QWEN_MIN_SPEED = 0.8` was
+calibrated against it.
+
+Measured, warm model, `CustomVoice`, bf16, SDPA attention:
+
+| batch | audio | wall | x-realtime | peak VRAM |
+|-------|-------|------|-----------|-----------|
+| 1 | 6.64s | 10.72s | **0.62x** | 2.15 GiB |
+| 4 | 34.32s | 15.80s | 2.17x | 2.78 GiB |
+| 8 | 64.88s | 17.57s | **3.69x** | 3.64 GiB |
+| 16 | 142.88s | 39.93s | 3.58x | 9.19 GiB |
+| 32 | — | — | OOM | — |
+
+Batch-1 decode is **0.62x — below QWEN_MIN_SPEED**. Serial generation cannot
+feed playback, so under `auto` the policy demoted on every measurement and,
+with `allow_cpu=False`, paused. Only pinned `gpu` mode kept it usable, by
+disabling the failover entirely.
+
+Why serial is slow: ~140ms per 12Hz frame, constant from 48 to 384 frames (so
+the KV cache is fine), against a **6ms** weight-bandwidth floor for 0.91B bf16
+params at ~300 GB/s — 21x off. `nvidia-smi` reports 99% utilisation at only
+45W of a 72W budget: many kernels too small to fill the GPU, the signature of
+batch-1 autoregressive decode. Not a capacity problem — 24GB is surplus here,
+and throughput flatlines at batch 16 while VRAM jumps 2.5x. Batch 8 is the knee.
+
+**Resolution:** `TTSEngine.max_batch` (default 1) + `synthesize_many()`, with
+the worker grouping pending chunks (`_pick_batch`). Qwen3 sets `max_batch = 8`;
+Kokoro stays at 1 and is byte-for-byte unaffected. Verified end-to-end through
+the running server: 16 chunks, 168.6s of audio in 45.7s = **3.69x**, zero
+failures, and `auto` mode now runs without a single demotion.
+
+Two related fixes landed with it:
+
+- `prepare(device, voice)` hoists lazy model/pipeline construction out of the
+  timed window. Charging a one-off load to x-realtime demoted healthy GPUs on
+  their first chunk (a cold Kokoro measured **0.59x on an idle L4** against a
+  1.5x floor), and the demotion dropped the pipeline so every retry paid the
+  load again.
+- A failed batch retries its items individually, so one bad chunk cannot fail
+  the seven that shared its batch.
+
+Still open: `QWEN_MIN_SPEED = 0.8` remains calibrated against the unverified
+4060 figure. It now happens to sit between the serial (0.62x) and batched
+(3.69x) rates, which is survivable, but it should be re-derived from measured
+hardware rather than inherited.

@@ -25,9 +25,19 @@ class EngineManager:
     def sample_rate(self) -> int:
         return self._engine.sample_rate
 
+    @property
+    def max_batch(self) -> int:
+        return self._engine.max_batch
+
     def synthesize(self, text, voice, urgent=False):
         with self._lock:
             return self._engine.synthesize(text, voice, urgent=urgent)
+
+    def synthesize_many(self, texts, voice, urgent=False):
+        # One batch holds the swap lock for its whole duration, same as a
+        # single synthesize: an engine swap waits for the batch in flight.
+        with self._lock:
+            return self._engine.synthesize_many(texts, voice, urgent=urgent)
 
     def swap(self, engine_id: str, mode: str) -> None:
         with self._lock:

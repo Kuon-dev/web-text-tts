@@ -60,3 +60,26 @@ def test_pinned_cpu_construction_does_not_touch_unset_state(monkeypatch):
 
     assert engine.policy.mode == "cpu"
     assert engine._pipelines == {}
+
+
+def test_prepare_builds_the_pipeline_so_load_is_not_timed(monkeypatch):
+    """The pipeline is built lazily inside _generate; prepare() hoists that out
+    of the measured window so a cold load cannot be read as a slow GPU."""
+    built = []
+
+    class FakePipeline:
+        def __init__(self, lang_code, device):
+            built.append((lang_code, device))
+            self.g2p = types.SimpleNamespace()
+
+    monkeypatch.setitem(sys.modules, "kokoro",
+                        types.SimpleNamespace(KPipeline=FakePipeline))
+    engine = make_engine()
+
+    engine.prepare("cuda", "af_heart")
+
+    assert built == [("a", "cuda")]
+    assert ("a", "cuda") in engine._pipelines
+
+    engine.prepare("cuda", "af_bella")        # same lang+device: reuse, no rebuild
+    assert built == [("a", "cuda")]
