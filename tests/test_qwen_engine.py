@@ -97,7 +97,7 @@ def test_voices_are_presets_plus_clones(fake_qwen, tmp_path):
 
 
 def test_qwen_declares_a_batch_width(fake_qwen, tmp_path):
-    assert make_engine(fake_qwen, tmp_path).max_batch == 8
+    assert make_engine(fake_qwen, tmp_path).max_batch == 32
 
 
 def test_preset_batch_reaches_the_model_as_a_single_call(fake_qwen, tmp_path):

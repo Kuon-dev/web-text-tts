@@ -26,10 +26,21 @@ log = logging.getLogger("novel-tts")
 QWEN_MIN_SPEED = 0.8            # below this the reader outruns generation
 # Batch-1 decode is latency-bound: ~140ms per 12Hz frame against a ~6ms
 # weight-bandwidth floor, leaving the GPU 99% "utilised" but at half its
-# power budget. Widening the batch is nearly free until it is not
-# (measured on an L4 2026-08-20: 1 -> 0.62x, 4 -> 2.17x, 8 -> 3.69x,
-# 16 -> 3.58x and 9.2GB, 32 -> OOM). 8 is the knee.
-QWEN_MAX_BATCH = 8
+# power budget. Widening the batch buys throughput almost linearly, and the
+# wall time of one batch barely moves with its width (17s at 8, 34s at 48),
+# so a wider batch costs little extra latency for a seek waiting it out.
+#
+# Measured on an idle L4 (2026-08-21): 8 -> 3.66x/3.6GB, 16 -> 3.94x/9.1GB,
+# 24 -> 7.74x/8.9GB, 32 -> 8.90x/12.3GB, 48 -> 11.72x/17.0GB. 32 is chosen
+# over the faster 48 for headroom: those figures are for ~8s chunks, and a
+# batch of long ones needs more VRAM than 17 of 22.5GB leaves room for.
+#
+# Caveat for anyone re-tuning this: generation length is stochastic, and a
+# batch runs until its LONGEST member finishes, so single-shot numbers are
+# noisy (the 16 vs 24 inversion above is that noise). Average repeats, and
+# measure with nothing else holding the GPU - an earlier sweep taken while
+# the server was generating showed a false knee at 8 and a false OOM at 32.
+QWEN_MAX_BATCH = 32
 QWEN_MIN_FREE_BYTES = 2_500_000_000   # 0.6B bf16 weights + KV headroom
 _MODELS = {"custom": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
            "base": "Qwen/Qwen3-TTS-12Hz-0.6B-Base"}

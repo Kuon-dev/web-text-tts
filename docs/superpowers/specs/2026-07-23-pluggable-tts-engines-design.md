@@ -317,11 +317,23 @@ Measured, warm model, `CustomVoice`, bf16, SDPA attention:
 
 | batch | audio | wall | x-realtime | peak VRAM |
 |-------|-------|------|-----------|-----------|
-| 1 | 6.64s | 10.72s | **0.62x** | 2.15 GiB |
-| 4 | 34.32s | 15.80s | 2.17x | 2.78 GiB |
-| 8 | 64.88s | 17.57s | **3.69x** | 3.64 GiB |
-| 16 | 142.88s | 39.93s | 3.58x | 9.19 GiB |
-| 32 | — | — | OOM | — |
+| 1 | 6.64s | 10.72s | **0.62x** | 2.2 GiB |
+| 8 | 62.2s | 17.03s | 3.66x | 3.6 GiB |
+| 16 | 155.4s | 39.41s | 3.94x | 9.1 GiB |
+| 24 | 207.1s | 26.76s | 7.74x | 8.9 GiB |
+| 32 | 280.7s | 31.55s | **8.90x** | 12.3 GiB |
+| 48 | 396.0s | 33.79s | 11.72x | 17.0 GiB |
+
+**Measure this with nothing else on the GPU.** The first version of this
+table was taken while the server was generating alongside the benchmark, and
+it reported a knee at batch 8 (3.69x) with 16 flat and 32 out of memory. All
+three were artefacts of contention: on an idle L4 throughput keeps climbing
+to 11.72x at 48, and 32 fits comfortably in 12.3 GiB. `QWEN_MAX_BATCH` was
+shipped as 8 on the strength of those bad numbers before being corrected.
+
+Generation length is also stochastic, and a batch runs until its longest
+member finishes, so single-shot figures are noisy — the 16-vs-24 inversion
+above is that noise, not a real dip. Average repeats before re-tuning.
 
 Batch-1 decode is **0.62x — below QWEN_MIN_SPEED**. Serial generation cannot
 feed playback, so under `auto` the policy demoted on every measurement and,
@@ -336,7 +348,9 @@ batch-1 autoregressive decode. Not a capacity problem — 24GB is surplus here,
 and throughput flatlines at batch 16 while VRAM jumps 2.5x. Batch 8 is the knee.
 
 **Resolution:** `TTSEngine.max_batch` (default 1) + `synthesize_many()`, with
-the worker grouping pending chunks (`_pick_batch`). Qwen3 sets `max_batch = 8`;
+the worker grouping pending chunks (`_pick_batch`). Qwen3 sets `max_batch = 32`
+— 8.90x, chosen over the faster 48 (11.72x) because 17.0 of 22.5 GiB usable
+leaves no room for chunks longer than the ~8s ones benchmarked;
 Kokoro stays at 1 and is byte-for-byte unaffected. Verified end-to-end through
 the running server: 16 chunks, 168.6s of audio in 45.7s = **3.69x**, zero
 failures, and `auto` mode now runs without a single demotion.
