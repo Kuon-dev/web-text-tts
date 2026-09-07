@@ -20,8 +20,9 @@ CACHE_CAP_BYTES = 2 * 1024 ** 3
 # whole document (position -> end, then wrap-around to cover rewinds), but
 # only while measured speed shows a free GPU: a worker busy on a far chunk
 # delays urgent jumps by a whole in-flight generation and fights the game
-# for the GPU. While slow, one probe chunk per FILL_PROBE_S keeps the speed
-# reading fresh. The byte budget stops the fill just short of the cache cap
+# for the GPU. While slow, one probe batch per FILL_PROBE_S, timed from the
+# batch's completion, keeps the speed reading fresh. The byte budget stops
+# the fill just short of the cache cap
 # so a pathological paste can never evict-and-regenerate its own audio.
 LOOKAHEAD_SECONDS = 180.0
 LOOKAHEAD_MAX_CHUNKS = 64
