@@ -8,6 +8,7 @@ from typing import ClassVar
 import numpy as np
 
 DEVICE_MODES = ("auto", "gpu", "cpu")
+CHARS_PER_SECOND = 15.0  # narration pace measured on real chapters
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,15 @@ class TTSEngine(ABC):
     max_batch: ClassVar[int] = 1
     default_voice: ClassVar[str]
     sample_rate: int = 24000
+    # Runaway guard. An autoregressive engine can fail to emit EOS and keep
+    # vocalising: Qwen3 0.6B produced 28s of breathing for a 3s line
+    # (spec 2026-09-07). An engine that sets overrun_factor gets a per-text
+    # budget of  overrun_factor * len(text) / CHARS_PER_SECOND + overrun_floor_s
+    # seconds - the cap it hands its model, and the length past which the
+    # base class regenerates the item alone and truncates. None disables it
+    # (Kokoro: a fixed-length model never overruns).
+    overrun_factor: ClassVar[float | None] = None
+    overrun_floor_s: ClassVar[float] = 2.0
 
     def __init__(self, policy):
         self.policy = policy
@@ -66,6 +76,12 @@ class TTSEngine(ABC):
         idle L4, against a 1.5x floor), and the demotion dropped the pipeline,
         so every retry paid the load again.
         """
+
+    def budget_seconds(self, text: str) -> float | None:
+        """Seconds of audio `text` may produce before it counts as a runaway."""
+        if self.overrun_factor is None:
+            return None
+        return self.overrun_factor * len(text) / CHARS_PER_SECOND + self.overrun_floor_s
 
     def _silence(self) -> np.ndarray:
         """Scene separators ("***", "◆ ◆ ◆") are a narrator pause, not input."""

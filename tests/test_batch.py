@@ -60,6 +60,32 @@ class BatchEngine(ToyEngine):
                 for _ in texts]
 
 
+class BudgetEngine(BatchEngine):
+    """Autoregressive-style engine that can overrun, like Qwen3: declares a
+    budget factor and accepts the cap the base class derives from it.
+    Texts in `overrun_texts` come back as 60s of audio, whatever the cap."""
+    overrun_factor = 1.6
+
+    def __init__(self, policy, seconds=1.0, overrun_texts=()):
+        super().__init__(policy, seconds)
+        self.overrun_texts = set(overrun_texts)
+        self.caps = []                       # max_seconds seen by every model call
+
+    def _length(self, text):
+        secs = 60.0 if text in self.overrun_texts else self.seconds
+        return int(secs * self.sample_rate)
+
+    def _generate(self, text, voice, device, *, max_seconds=None):
+        self.generate_calls.append(text)
+        self.caps.append(max_seconds)
+        return np.zeros(self._length(text), dtype=np.float32)
+
+    def _generate_batch(self, texts, voice, device, *, max_seconds=None):
+        self.batch_calls.append(list(texts))
+        self.caps.append(max_seconds)
+        return [np.zeros(self._length(t), dtype=np.float32) for t in texts]
+
+
 class FakeClock:
     """Advances a fixed amount across one batch call, so speed is exact."""
     def __init__(self, step):
@@ -226,3 +252,17 @@ def test_synthesize_many_returns_one_audio_array_per_item():
     assert len(out) == 3
     assert all(isinstance(a, np.ndarray) for a in out)
     assert engine.generate_calls == ["alpha", "beta", "gamma"]
+
+
+def test_engines_without_a_factor_have_no_budget():
+    assert ToyEngine(FakePolicy()).budget_seconds("any text at all") is None
+    assert BatchEngine(FakePolicy()).budget_seconds("any text at all") is None
+
+
+def test_budget_is_factor_times_narration_pace_plus_floor():
+    engine = BudgetEngine(FakePolicy())
+
+    # 150 chars = 10s at 15 chars/s; 1.6x + 2s floor
+    assert engine.budget_seconds("x" * 150) == pytest.approx(18.0)
+    # interjections are dominated by the floor
+    assert engine.budget_seconds("Mm.") == pytest.approx(1.6 * 3 / 15 + 2.0)

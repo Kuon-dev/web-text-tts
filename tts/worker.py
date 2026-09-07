@@ -9,7 +9,7 @@ import soundfile as sf
 
 from chunker import Chunk, chunk_id
 
-from .base import EngineUnavailable
+from .base import CHARS_PER_SECOND, EngineUnavailable
 
 log = logging.getLogger("novel-tts")
 
@@ -23,7 +23,6 @@ CACHE_CAP_BYTES = 2 * 1024 ** 3
 # for the GPU. While slow, one probe chunk per FILL_PROBE_S keeps the speed
 # reading fresh. The byte budget stops the fill just short of the cache cap
 # so a pathological paste can never evict-and-regenerate its own audio.
-CHARS_PER_SECOND = 15.0  # narration pace measured on real chapters
 LOOKAHEAD_SECONDS = 180.0
 LOOKAHEAD_MAX_CHUNKS = 64
 # Informational default (matches Kokoro's rate); the live estimate used by
