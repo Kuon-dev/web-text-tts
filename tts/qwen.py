@@ -140,8 +140,9 @@ class Qwen3Engine(TTSEngine):
                         *, max_seconds: float | None = None) -> list[np.ndarray]:
         if voice.startswith("clone:"):
             # generate_voice_clone takes a single ref clip per call; the base
-            # implementation hands each item its own budget
-            return super()._generate_batch(texts, voice, device, max_seconds=max_seconds)
+            # implementation hands each item its own budget via _call_generate,
+            # so max_seconds here would be inert
+            return super()._generate_batch(texts, voice, device)
         model = self._load("custom")
         wavs, sr = model.generate_custom_voice(
             text=list(texts), language=_PRESET_LANG.get(voice, "Auto"),

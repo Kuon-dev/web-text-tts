@@ -162,7 +162,10 @@ class TTSEngine(ABC):
         return audio[:limit]
 
     @abstractmethod
-    def _generate(self, text: str, voice: str, device: str) -> np.ndarray: ...
+    def _generate(self, text: str, voice: str, device: str, *,
+                  max_seconds: float | None = None) -> np.ndarray:
+        """An engine that sets `overrun_factor` must accept this keyword;
+        unbudgeted engines are never passed it."""
 
     @abstractmethod
     def voices(self) -> list[Voice]: ...
