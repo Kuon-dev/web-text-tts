@@ -238,8 +238,11 @@ class TTSWorker:
                     self._attempts[cid] = self._attempts.get(cid, 1) - 1
                 return
             except Exception:
-                log.exception("chunk %s failed (attempt %d)", cid[:8],
-                              self._attempts.get(cid, 0))
+                with self._cond:
+                    if self._epoch != epoch:
+                        return          # stale: set_doc landed during the retry call
+                    attempts = self._attempts.get(cid, 0)
+                log.exception("chunk %s failed (attempt %d)", cid[:8], attempts)
                 with self._cond:
                     if self._attempts.get(cid, 0) >= MAX_ATTEMPTS:
                         self._failed.add(cid)
@@ -288,8 +291,9 @@ class TTSWorker:
                 with self._cond:
                     if self._epoch != epoch:
                         continue                       # stale: the doc moved on
-                    log.exception("chunk %s failed (attempt %d)", cid[:8],
-                                  self._attempts.get(cid, 0))
+                    attempts = self._attempts.get(cid, 0)
+                log.exception("chunk %s failed (attempt %d)", cid[:8], attempts)
+                with self._cond:
                     if self._attempts.get(cid, 0) >= MAX_ATTEMPTS:
                         self._failed.add(cid)
 

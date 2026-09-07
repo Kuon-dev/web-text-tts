@@ -339,6 +339,47 @@ def test_a_failed_batch_is_not_retried_after_the_doc_changed(tmp_path):
     assert list(tmp_path.glob("*.wav")) == []           # nothing written under the old namespace
 
 
+class BlockingRetryEngine(BatchFakeEngine):
+    """Batch call fails immediately; the per-item retry (synthesize) blocks
+    on an Event before failing too, so a set_doc landing mid-retry (the
+    engine call runs outside the lock) can be observed."""
+
+    def __init__(self, event):
+        super().__init__()
+        self.event = event
+
+    def synthesize_many(self, texts, voice, urgent=False):
+        self.batches.append(list(texts))
+        raise RuntimeError("whole batch exploded")
+
+    def synthesize(self, text, voice, urgent=False):
+        self.calls.append(text)
+        self.event.wait(5.0)
+        raise RuntimeError("retry exploded too")
+
+
+def test_retry_failure_after_the_epoch_moved_on_is_dropped_silently(tmp_path, caplog):
+    """The epoch is checked at the top of each _retry_individually iteration,
+    but the engine call runs outside the lock: if set_doc lands during it and
+    the call raises, the failure must be dropped silently (no attempt, no
+    'failed' entry, no log line) because set_doc already cleared this cid's
+    state for the new document."""
+    event = threading.Event()
+    chunks = make_chunks(2)
+    engine = BlockingRetryEngine(event)
+    worker = TTSWorker(tmp_path, engine)
+    worker.set_doc(chunks, "ns")
+
+    assert wait_until(lambda: len(engine.calls) == 1)   # first retry in flight, blocked
+    worker.set_doc([], "ns2")                            # epoch moves on mid-retry
+    event.set()
+    time.sleep(0.3)
+
+    assert worker.status()["failed"] == []
+    assert "failed" not in caplog.text
+    assert engine.calls == [chunks[0].text]              # loop returned; no 2nd retry
+
+
 def test_a_slow_probe_still_hands_the_engine_a_full_batch(tmp_path):
     """Below FILL_MIN_SPEED the back-fill tier issues one probe per
     FILL_PROBE_S. A one-CHUNK probe measures serial speed (0.6x on Qwen),
