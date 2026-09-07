@@ -171,7 +171,7 @@ class TTSWorker:
         return None
 
     def _pick_batch(self, limit: int):
-        """Under lock: ([(cid, text), ...], urgent) or None.
+        """Under lock: ([(cid, text), ...], urgent, used_fill) or None.
 
         An urgent chunk is returned alone: somebody is waiting on it, and a
         wide batch would make them wait for its slowest member too.
@@ -181,6 +181,17 @@ class TTSWorker:
         fill_probe_interval, and the whole batch may draw from it. A probe
         of one chunk would measure serial decode (0.6x on Qwen) and keep
         the worker throttled forever.
+
+        `used_fill` tells the caller whether any member of the batch came
+        from the fill tier while probing; it is True exactly when the
+        caller should stamp `_last_fill_probe`. This method never stamps it
+        itself: a probe batch can run well past fill_probe_interval (a
+        32-wide probe at ~2x realtime can take 90s+), and stamping at pick
+        time would make the very next pick see the interval as already
+        elapsed and re-open the fill tier immediately - continuous
+        back-fill on the contended GPU the throttle exists to protect. The
+        caller stamps when the batch COMPLETES instead (success or
+        failure), so the interval is a real cooldown.
         """
         now = time.monotonic()
         probing = self._speed < self._fill_min_speed
@@ -200,9 +211,7 @@ class TTSWorker:
                 jobs.append((nxt[0], nxt[1]))
                 claimed.add(nxt[0])
                 used_fill = used_fill or nxt[3]
-        if probing and used_fill:
-            self._last_fill_probe = now
-        return jobs, urgent
+        return jobs, urgent, probing and used_fill
 
     def _write(self, cid: str, audio, sr: int) -> None:
         tmp = self.path(cid).with_suffix(".tmp")
@@ -255,7 +264,7 @@ class TTSWorker:
                 if picked is None:
                     self._cond.wait(timeout=1.0)
                     continue
-                jobs, urgent = picked
+                jobs, urgent, used_fill = picked
                 voice = self._voice
                 epoch = self._epoch
                 for cid, _ in jobs:
@@ -271,6 +280,8 @@ class TTSWorker:
                 self._enforce_cache_cap()
                 total = sum(len(a) for a in audio)
                 with self._cond:
+                    if used_fill:
+                        self._last_fill_probe = time.monotonic()
                     # x-realtime of the batch as a whole: that is the rate the
                     # reader is actually fed at.
                     if wall >= 0.3 and total >= sr:
@@ -279,6 +290,8 @@ class TTSWorker:
                         self._settle(cid)
             except EngineUnavailable as exc:
                 with self._cond:
+                    if used_fill:
+                        self._last_fill_probe = time.monotonic()  # a failed probe still backs off
                     self._blocked = str(exc)
                     for cid, _ in jobs:
                         self._attempts[cid] = self._attempts.get(cid, 1) - 1  # not an attempt
@@ -286,9 +299,14 @@ class TTSWorker:
             except Exception:
                 if len(jobs) > 1:
                     self._retry_individually(jobs, voice, epoch)
+                    if used_fill:
+                        with self._cond:
+                            self._last_fill_probe = time.monotonic()
                     continue
                 cid = jobs[0][0]
                 with self._cond:
+                    if used_fill:
+                        self._last_fill_probe = time.monotonic()  # a failed probe still backs off
                     if self._epoch != epoch:
                         continue                       # stale: the doc moved on
                     attempts = self._attempts.get(cid, 0)

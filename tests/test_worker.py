@@ -400,3 +400,39 @@ def test_a_slow_probe_still_hands_the_engine_a_full_batch(tmp_path):
     # exactly one probe, and it is a full batch from the fill tier
     assert engine.batches == [[c.text for c in chunks[3:7]]]
     assert not worker.path(cids[7]).exists()
+
+
+class SlowBatchEngine(BatchFakeEngine):
+    """Every batch call takes `sleep_s` wall time, like a wide probe batch
+    that outlasts a short fill_probe_interval."""
+
+    def __init__(self, sleep_s, fail_texts=()):
+        super().__init__(fail_texts)
+        self.sleep_s = sleep_s
+
+    def synthesize_many(self, texts, voice, urgent=False):
+        self.batches.append(list(texts))
+        time.sleep(self.sleep_s)
+        return [self.synthesize(t, voice, urgent=urgent) for t in texts]
+
+
+def test_fill_probe_is_stamped_on_completion_not_at_pick_time(tmp_path):
+    """A probe batch that takes longer than fill_probe_interval must not
+    reopen the fill tier the instant it returns: the interval is a cooldown
+    measured from the batch's COMPLETION, not from when it was picked. At
+    pick-time stamping, a probe batch slower than the interval leaves the
+    stamp already 'expired' the moment it lands, so the very next pick
+    re-opens the fill tier immediately -> continuous back-fill on the
+    contended GPU the throttle exists to protect."""
+    chunks = [Chunk(text=f"{i} " + "word " * 179 + "end.", para=i) for i in range(12)]
+    cids = [chunk_id("ns", c.text) for c in chunks]
+    engine = SlowBatchEngine(sleep_s=0.5)    # longer than the 0.2s interval below
+    worker = TTSWorker(tmp_path, engine, fill_probe_interval=0.2)
+    for c in cids[:3]:                       # the 180s window (chunks 0-2) is already cached
+        worker.path(c).write_bytes(b"")
+    worker.set_doc(chunks, "ns", position=0)
+
+    assert wait_until(lambda: worker.path(cids[3]).exists(), timeout=5.0)  # first probe landed
+    time.sleep(0.1)                          # well under the interval, measured from completion
+    assert len(engine.batches) == 1
+    assert wait_until(lambda: len(engine.batches) >= 2, timeout=5.0)  # interval elapses
