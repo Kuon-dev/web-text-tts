@@ -6,7 +6,7 @@ ENGINE_IDS = ("kokoro", "qwen3")
 
 _META = {
     "kokoro": {"label": "Kokoro-82M", "supported_modes": ["auto", "gpu", "cpu"]},
-    "qwen3": {"label": "Qwen3-TTS 0.6B", "supported_modes": ["auto", "gpu"]},
+    "qwen3": {"label": "Qwen3-TTS 1.7B", "supported_modes": ["auto", "gpu"]},
 }
 
 

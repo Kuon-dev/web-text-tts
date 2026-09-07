@@ -12,7 +12,7 @@ Paste a chapter (button top right, or edit `novel.txt`), press Play.
 - Bottom player bar: searchable voice combobox (grouped by engine/language),
   transport, volume + mute, speed popover, clickable chapter-progress strip
 - Engine picker (settings): **Kokoro-82M** (default, 16 voices; falls back to CPU
-  under GPU contention) or **Qwen3-TTS 0.6B** (9 preset speakers incl. native
+  under GPU contention) or **Qwen3-TTS 1.7B** (9 preset speakers incl. native
   Japanese, GPU-only; pauses generation when GPU is busy — playback waits, UI
   explains why). Switching engine regenerates cached audio; per-engine voice memory.
 - Aa menu (top right): theme (light / dark / system) + accent color, reading font
@@ -25,15 +25,15 @@ Paste a chapter (button top right, or edit `novel.txt`), press Play.
 
 ## Qwen3-TTS extras
 
-First use downloads ~1.8 GB per model variant (CustomVoice for preset voices, Base
+First use downloads ~4.3 GB per model variant (CustomVoice for preset voices, Base
 for cloning).
 
 - **Style instruction** (settings, Qwen3 only): "read calmly…" etc. Applies to
-  preset voices; regenerates audio if changed. Note: the installed qwen-tts
-  (0.1.1) silently ignores instructions on the 0.6B models, so this field has
-  no audible effect until a larger variant is wired in.
-- **Runaway guard** (Qwen3 only): the 0.6B model can miss its stop token on
-  breathy lines and huff for a minute. Every generation is capped at
+  preset voices; regenerates audio if changed. The 1.7B model honours it
+  (the 0.6B it replaced did not); "Calm, even narration. Neutral tone, no
+  laughing or sighing." is the one that removed the stray sighs and laughs.
+- **Runaway guard** (Qwen3 only): the model can miss its stop token on
+  breathy lines and huff for a minute (the old 0.6B did so often, the 1.7B rarely). Every generation is capped at
   1.6× the expected narration length + 2s; anything that hits the cap is
   regenerated once and cut there. Look for `runaway:` in the server log.
 - **Voice cloning** (settings, 3–30s audio clip): Upload a reference clip in

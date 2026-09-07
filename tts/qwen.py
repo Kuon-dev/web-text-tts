@@ -1,4 +1,11 @@
-"""Qwen3-TTS 0.6B: presets (CustomVoice) + clones (Base), one variant resident.
+"""Qwen3-TTS 1.7B: presets (CustomVoice) + clones (Base), one variant resident.
+
+Moved from the 0.6B models on 2026-09-08: on the L4 the 1.7B decodes at the
+same speed (0.61x vs 0.60x at batch 1, 9.5x vs 8.0x at batch 32 - decode is
+per-step-overhead bound, not weight bound), its takes are tighter, and unlike
+the 0.6B it honours the instruct field, so a "calm narration" instruction can
+steer the sighs and laughs out. Cost: 3.9GB of weights instead of 2.0GB and a
+44s instead of 22s cold load.
 
 GPU-only: ~0.2-0.3x realtime on CPU is unusable, so DevicePolicy(allow_cpu=False)
 pauses (EngineUnavailable) instead of falling back when the GPU is contended.
@@ -45,8 +52,8 @@ QWEN_MIN_SPEED = 0.8            # below this the reader outruns generation
 # measure with nothing else holding the GPU - an earlier sweep taken while
 # the server was generating showed a false knee at 8 and a false OOM at 32.
 QWEN_MAX_BATCH = 32
-QWEN_MIN_FREE_BYTES = 2_500_000_000   # 0.6B bf16 weights + KV headroom
-# Runaway guard (spec 2026-09-07). The 0.6B model sometimes never emits EOS
+QWEN_MIN_FREE_BYTES = 4_500_000_000   # 1.7B bf16 weights (3.9GB) + KV headroom
+# Runaway guard (spec 2026-09-07). The 0.6B model sometimes never emitted EOS
 # on breathy or emotive text: "Haa... haa... I can't... breathe..." (44 chars,
 # ~3s) came back as 28.4s of continuous breathing at batch 1, and the cache
 # held 124 WAVs over 17s for chunks capped at 250 chars. The library's only
@@ -54,10 +61,12 @@ QWEN_MIN_FREE_BYTES = 2_500_000_000   # 0.6B bf16 weights + KV headroom
 # every call gets the budget the base class derives from the text, in codec
 # frames. This also bounds the codec decoder, which pads a whole batch to its
 # longest member: a 68s runaway in a 32-wide batch made it OOM on 3.09 GiB.
+# The 1.7B misses EOS less often (68 benchmark takes of the lines that tripped
+# the 0.6B: one 0.3s overrun, no 13s+ take), but the guard stays as insurance.
 QWEN_FRAMES_PER_SECOND = 12.5     # 12Hz tokenizer family: 12.5 frames/s per model card
 QWEN_OVERRUN_FACTOR = 1.6         # 1.6x the 15 chars/s estimate + the 2s floor
-_MODELS = {"custom": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
-           "base": "Qwen/Qwen3-TTS-12Hz-0.6B-Base"}
+_MODELS = {"custom": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+           "base": "Qwen/Qwen3-TTS-12Hz-1.7B-Base"}
 
 # (speaker, group, language-arg) - the 9 documented CustomVoice speakers
 PRESETS = [
@@ -72,7 +81,7 @@ _PRESET_LANG = {name: lang for name, _, lang in PRESETS}
 
 class Qwen3Engine(TTSEngine):
     id = "qwen3"
-    label = "Qwen3-TTS 0.6B"          # must match registry._META
+    label = "Qwen3-TTS 1.7B"          # must match registry._META
     supported_modes = ("auto", "gpu")
     max_batch = QWEN_MAX_BATCH
     overrun_factor = QWEN_OVERRUN_FACTOR
@@ -103,8 +112,8 @@ class Qwen3Engine(TTSEngine):
 
     def fingerprint(self, voice_id: str) -> str:
         if voice_id.startswith("clone:"):
-            return "base-0.6b\x00" + self._clones.fingerprint(voice_id)
-        return "custom-0.6b\x00" + hashlib.sha1(self._instruct.encode()).hexdigest()
+            return "base-1.7b\x00" + self._clones.fingerprint(voice_id)
+        return "custom-1.7b\x00" + hashlib.sha1(self._instruct.encode()).hexdigest()
 
     def info(self) -> dict:
         return {**super().info(), "cold": self._model is None}

@@ -45,7 +45,7 @@ def make_engine(fake_qwen, tmp_path):
 
 def test_identity(fake_qwen, tmp_path):
     e = make_engine(fake_qwen, tmp_path)
-    assert (e.id, e.label) == ("qwen3", "Qwen3-TTS 0.6B")
+    assert (e.id, e.label) == ("qwen3", "Qwen3-TTS 1.7B")
     assert e.supported_modes == ("auto", "gpu")
     assert e.default_voice == "Ryan"
     assert e.info()["cold"] is True                      # nothing loaded yet
@@ -56,7 +56,7 @@ def test_preset_synthesis_loads_custom_variant_once(fake_qwen, tmp_path):
     e.set_instruct("read it calmly")
     e.synthesize("Hello there, traveler.", "Ryan")
     e.synthesize("Another line.", "Ryan")
-    assert fake_qwen["loaded"] == ["Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"]
+    assert fake_qwen["loaded"] == ["Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"]
     assert fake_qwen["custom"][0] == ("Hello there, traveler.", "English", "Ryan", "read it calmly")
     assert e.info()["cold"] is False
 
@@ -67,8 +67,8 @@ def test_clone_synthesis_swaps_to_base_variant(fake_qwen, tmp_path):
     voice = e._clones.add(tv.clip_bytes(), name="Narrator A")
     e.synthesize("Hello.", "Ryan")
     e.synthesize("Cloned line.", voice.id)
-    assert fake_qwen["loaded"] == ["Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
-                                   "Qwen/Qwen3-TTS-12Hz-0.6B-Base"]
+    assert fake_qwen["loaded"] == ["Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+                                   "Qwen/Qwen3-TTS-12Hz-1.7B-Base"]
     assert fake_qwen["clone"][0][1].endswith("ref.wav")
 
 
@@ -80,7 +80,7 @@ def test_fingerprints(fake_qwen, tmp_path):
     assert e.fingerprint("Ryan") != base                 # instruct changes preset cids
     voice = e._clones.add(tv.clip_bytes(), name="A")
     fp = e.fingerprint(voice.id)
-    assert fp.startswith("base-0.6b") and "whisper" not in fp   # clones ignore instruct
+    assert fp.startswith("base-1.7b") and "whisper" not in fp   # clones ignore instruct
 
 
 def test_speakable_accepts_japanese(fake_qwen, tmp_path):
@@ -129,7 +129,7 @@ def test_prepare_loads_the_variant_before_the_clock_starts(fake_qwen, tmp_path):
 
     e.prepare("cuda", "Ryan")
 
-    assert fake_qwen["loaded"] == ["Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"]
+    assert fake_qwen["loaded"] == ["Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"]
     assert e.info()["cold"] is False
 
 

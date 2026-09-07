@@ -49,7 +49,7 @@ class FakeManager:
     CATALOG = [
         {"id": "kokoro", "label": "Kokoro-82M", "available": True, "reason": None,
          "supported_modes": ["auto", "gpu", "cpu"]},
-        {"id": "qwen3", "label": "Qwen3-TTS 0.6B", "available": True, "reason": None,
+        {"id": "qwen3", "label": "Qwen3-TTS 1.7B", "available": True, "reason": None,
          "supported_modes": ["auto", "gpu"]},
     ]
     VOICES = {"kokoro": [Voice("af_heart", "Heart", "US female", "en-US"),

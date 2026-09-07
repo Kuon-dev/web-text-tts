@@ -10,7 +10,7 @@ def test_catalog_lists_both_engines_with_modes():
     assert cat["kokoro"]["available"] is True
     assert cat["kokoro"]["supported_modes"] == ["auto", "gpu", "cpu"]
     assert cat["qwen3"]["supported_modes"] == ["auto", "gpu"]
-    assert cat["qwen3"]["label"] == "Qwen3-TTS 0.6B"
+    assert cat["qwen3"]["label"] == "Qwen3-TTS 1.7B"
 
 
 def test_qwen_unavailable_without_package(monkeypatch):
