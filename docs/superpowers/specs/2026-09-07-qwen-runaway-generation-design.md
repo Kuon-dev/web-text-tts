@@ -1,7 +1,7 @@
 # Qwen3 Runaway Generation — Length Budgets for Batched Decode
 
 **Date:** 2026-09-07
-**Status:** Proposed
+**Status:** Implemented (L4 verification pending)
 **Extends:** `2026-07-23-pluggable-tts-engines-design.md` (batched decode addendum, 2026-08-20)
 
 ## Purpose

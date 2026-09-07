@@ -29,7 +29,13 @@ First use downloads ~1.8 GB per model variant (CustomVoice for preset voices, Ba
 for cloning).
 
 - **Style instruction** (settings, Qwen3 only): "read calmly…" etc. Applies to
-  preset voices; regenerates audio if changed.
+  preset voices; regenerates audio if changed. Note: the installed qwen-tts
+  (0.1.1) silently ignores instructions on the 0.6B models, so this field has
+  no audible effect until a larger variant is wired in.
+- **Runaway guard** (Qwen3 only): the 0.6B model can miss its stop token on
+  breathy lines and huff for a minute. Every generation is capped at
+  1.6× the expected narration length + 2s; anything that hits the cap is
+  regenerated once and cut there. Look for `runaway:` in the server log.
 - **Voice cloning** (settings, 3–30s audio clip): Upload a reference clip in
   settings; the cloned voice appears in the combobox under "Cloned".
 
