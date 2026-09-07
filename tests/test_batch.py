@@ -331,6 +331,36 @@ def test_an_in_budget_item_is_never_retried():
     assert len(out[0]) == engine.sample_rate
 
 
+def test_max_runaway_retries_defaults_to_two():
+    assert BudgetEngine(FakePolicy()).max_runaway_retries == 2
+
+
+def test_batch_retries_are_capped_then_truncated_without_regenerating():
+    # Five runaways at a 28.7s budget would otherwise be ~4 minutes of serial
+    # retries held under the manager lock. Only max_runaway_retries (2) get a
+    # second try; the rest are truncated in place, no extra _generate call.
+    bad = ["Haa... one", "Haa... two", "Haa... three"]
+    engine = BudgetEngine(FakePolicy(), overrun_texts=set(bad))
+
+    out = engine.synthesize_many(["fine."] + bad, "v1")
+
+    assert engine.generate_calls == bad[:2]      # only 2 retries, third skipped
+    assert len(out[0]) == engine.sample_rate     # in-budget neighbour untouched
+    for text, audio in zip(bad, out[1:]):
+        assert len(audio) == int(engine.budget_seconds(text) * engine.sample_rate)
+
+
+def test_single_synthesize_retry_is_unaffected_by_the_batch_cap():
+    # synthesize() always gets its one retry, independent of max_runaway_retries.
+    bad = "Haa..."
+    engine = BudgetEngine(FakePolicy(), overrun_texts={bad})
+
+    audio = engine.synthesize(bad, "v1")
+
+    assert engine.generate_calls == [bad, bad]
+    assert len(audio) == int(engine.budget_seconds(bad) * engine.sample_rate)
+
+
 def test_retry_time_counts_toward_the_batch_speed(monkeypatch):
     clock = ManualClock()
     monkeypatch.setattr("tts.base.time.monotonic", clock)

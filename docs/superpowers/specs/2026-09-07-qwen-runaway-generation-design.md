@@ -110,21 +110,45 @@ Both entry points already own the timing window. After `_generate` /
 `_generate_batch` returns, each item is checked against its budget:
 
 ```python
-def _enforce_budget(self, text, audio, voice, device) -> np.ndarray:
+def _enforce_budget(self, text, audio, voice, device, retries) -> np.ndarray:
     budget = self.budget_seconds(text)
     if budget is None or len(audio) <= self._budget_samples(budget):
         return audio
+    if retries[0] <= 0:
+        log.warning("runaway %.1fs for %d chars (budget %.1fs), "
+                    "retry budget spent, truncating", ...)
+        return audio[: self._budget_samples(budget)]
+    retries[0] -= 1
     log.warning("runaway %.1fs for %d chars (budget %.1fs), regenerating alone",
                 len(audio) / self.sample_rate, len(text), budget)
     audio = self._generate(text, voice, device)      # one retry, alone
     return audio[: self._budget_samples(budget)]     # keep whatever we got
 ```
 
+`retries` is a mutable one-element counter created once per `synthesize_many()`
+call (`[self.max_runaway_retries]`) and shared across every item in it;
+`synthesize()` passes its own fresh `[1]` so the single-item path always
+gets its retry.
+
 Time spent in the retry is charged to the batch's throughput measurement,
 because it is real wall time the reader waits for. The retry is a single
 `_generate`, never a nested batch, so the recursion is bounded by design.
 The truncation is a hard cut at the budget: at that point the audio is
 already breathing, and a fade would only lengthen it.
+
+Each retry is a serial generation held under `EngineManager._lock`, which
+also gates swap/set_instruct/set_mode and the `/api/state` handler: five
+runaways at a 28.7s budget would otherwise be ~4 minutes of UI hang. At most
+`max_runaway_retries` (2) over-budget items per `synthesize_many()` call are
+regenerated; the rest are truncated without regeneration once that budget is
+spent. `synthesize()` (single) always gets its one retry, independent of
+this cap.
+
+A runaway is penalised twice in the throughput measurement: the retry's
+wall time is charged in full, and the numerator is the truncated (shorter)
+audio, not what the model actually produced — a double hit diluted across a
+wide batch but visible in a 2-3 chunk batch at a document's end. Noted here
+for whoever re-derives `QWEN_MIN_SPEED`.
 
 The cap is what makes "over budget" detectable cheaply. Engines receive the
 budget as a keyword so they can pass it to the model:
@@ -179,11 +203,18 @@ form.
 
 `_pick` currently gates the fill tier on `_last_fill_probe` every call, so
 the second `_pick` of a batch assembly sees a fresh stamp and returns None.
-The gate moves to `_pick_batch`: it decides once whether a probe is due,
-passes `allow_fill=True/False` into `_pick`, and stamps `_last_fill_probe`
-after the batch is assembled. A probe is then a full batch, its measured
-speed reflects batched decode (~10x on the L4), and the worker leaves probe
-mode after one probe instead of never.
+The gate moves to `_pick_batch`: it decides once whether a probe is due and
+passes `allow_fill=True/False` into `_pick`. `_pick_batch` itself stamps
+nothing; it returns `used_fill` (True when probing and any member came from
+the fill tier) and `_run` stamps `_last_fill_probe` when the batch
+completes (success or failure), so the interval is a cooldown even when a
+wide probe batch outlasts it. A 32-wide probe at ~2x realtime can take
+90s+; stamping at pick time would let the very next `_pick_batch` see the
+interval as already elapsed and re-open the fill tier immediately,
+producing continuous back-fill on the contended GPU the throttle exists to
+protect. A probe is then a full batch, its measured speed reflects batched
+decode (~10x on the L4), and the worker leaves probe mode after one probe
+instead of never.
 
 ### Error handling
 

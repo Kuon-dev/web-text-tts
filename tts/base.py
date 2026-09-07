@@ -47,6 +47,13 @@ class TTSEngine(ABC):
     # (Kokoro: a fixed-length model never overruns).
     overrun_factor: ClassVar[float | None] = None
     overrun_floor_s: ClassVar[float] = 2.0
+    # Retries happen serially under EngineManager._lock, which also gates
+    # swap/set_instruct/set_mode and /api/state: five runaways at a 28.7s
+    # budget would otherwise be ~4 minutes of UI hang. At most this many
+    # over-budget items PER synthesize_many() CALL get a second try; the
+    # rest are truncated without regenerating. synthesize() (single) always
+    # gets its one retry, independent of this cap.
+    max_runaway_retries: ClassVar[int] = 2
 
     def __init__(self, policy):
         self.policy = policy
@@ -59,7 +66,7 @@ class TTSEngine(ABC):
         start = time.monotonic()
         try:
             audio = self._call_generate(text, voice, device)
-            audio = self._enforce_budget(text, audio, voice, device)
+            audio = self._enforce_budget(text, audio, voice, device, [1])
         except EngineUnavailable:
             raise                      # a gate, not a generation failure
         except Exception as exc:
@@ -107,9 +114,10 @@ class TTSEngine(ABC):
         device = self.policy.pick(urgent)
         self.prepare(device, voice)
         start = time.monotonic()
+        retries = [self.max_runaway_retries]
         try:
             audio = self._call_generate_batch([t for _, t in batch], voice, device)
-            audio = [self._enforce_budget(t, a, voice, device)
+            audio = [self._enforce_budget(t, a, voice, device, retries)
                      for (_, t), a in zip(batch, audio)]
         except EngineUnavailable:
             raise                      # a gate, not a generation failure
@@ -145,17 +153,28 @@ class TTSEngine(ABC):
             texts, voice, device,
             max_seconds=max(self.budget_seconds(t) for t in texts))
 
-    def _enforce_budget(self, text, audio, voice, device):
+    def _enforce_budget(self, text, audio, voice, device, retries):
         """Over budget = the engine hit its cap without an EOS. Try once more
         alone (sampling is stochastic; the second take is usually fine), and
         keep whatever comes back, cut at the budget: at that point the audio
-        is already breathing, and a fade would only lengthen it."""
+        is already breathing, and a fade would only lengthen it.
+
+        `retries` is a mutable one-element counter shared across every item
+        in the same synthesize_many() call: each retry runs serially under
+        EngineManager._lock, so once it is spent the remaining over-budget
+        items are truncated in place, without regenerating."""
         budget = self.budget_seconds(text)
         if budget is None:
             return audio
         limit = int(budget * self.sample_rate)
         if len(audio) <= limit:
             return audio
+        if retries[0] <= 0:
+            log.warning("runaway: %.1fs of audio for %d chars (budget %.1fs), "
+                        "retry budget spent, truncating",
+                        len(audio) / self.sample_rate, len(text), budget)
+            return audio[:limit]
+        retries[0] -= 1
         log.warning("runaway: %.1fs of audio for %d chars (budget %.1fs), regenerating alone",
                     len(audio) / self.sample_rate, len(text), budget)
         audio = self._generate(text, voice, device, max_seconds=budget)
