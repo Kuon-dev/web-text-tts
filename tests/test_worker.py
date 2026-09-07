@@ -337,3 +337,25 @@ def test_a_failed_batch_is_not_retried_after_the_doc_changed(tmp_path):
 
     assert engine.calls == []                           # no per-item retries with "Ryan"
     assert list(tmp_path.glob("*.wav")) == []           # nothing written under the old namespace
+
+
+def test_a_slow_probe_still_hands_the_engine_a_full_batch(tmp_path):
+    """Below FILL_MIN_SPEED the back-fill tier issues one probe per
+    FILL_PROBE_S. A one-CHUNK probe measures serial speed (0.6x on Qwen),
+    which keeps the worker in probe mode forever: one chunk every 90s, the
+    cadence seen on 2026-08-26. The probe must be a batch so the speed it
+    measures is batched decode."""
+    chunks = [Chunk(text=f"{i} " + "word " * 179 + "end.", para=i) for i in range(12)]
+    cids = [chunk_id("ns", c.text) for c in chunks]
+    engine = BatchFakeEngine()               # max_batch 4, instant: speed stays 0 -> probing
+    worker = TTSWorker(tmp_path, engine, fill_probe_interval=9999.0)
+    for c in cids[:3]:                       # the 180s window (chunks 0-2) is already cached
+        worker.path(c).write_bytes(b"")
+    worker.set_doc(chunks, "ns", position=0)
+
+    assert wait_until(lambda: len(engine.batches) >= 1)
+    time.sleep(0.3)
+
+    # exactly one probe, and it is a full batch from the fill tier
+    assert engine.batches == [[c.text for c in chunks[3:7]]]
+    assert not worker.path(cids[7]).exists()

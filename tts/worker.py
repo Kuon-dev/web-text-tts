@@ -124,17 +124,20 @@ class TTSWorker:
         }
 
     # -- worker loop ---------------------------------------------------------
-    def _pick(self, exclude=frozenset()):
-        """Under lock: (cid, text, urgent) to generate next, or None.
+    def _pick(self, exclude=frozenset(), allow_fill=True):
+        """Under lock: (cid, text, urgent, fill) to generate next, or None.
 
         `exclude` holds cids already claimed by the batch being assembled.
+        `allow_fill` is _pick_batch's per-batch probe decision: while
+        generation measures slow, the back-fill tier opens once per
+        FILL_PROBE_S for a whole batch, not for a single chunk.
         """
         by_id = dict(zip(self._cids, (c.text for c in self._chunks)))
         for cid in self._requests:
             if (cid in by_id and cid not in exclude
                     and not self.path(cid).exists()
                     and self._attempts.get(cid, 0) < MAX_ATTEMPTS):
-                return cid, by_id[cid], True
+                return cid, by_id[cid], True, False
         self._requests = [c for c in self._requests
                           if c in by_id and not self.path(c).exists()
                           and self._attempts.get(c, 0) < MAX_ATTEMPTS]
@@ -149,12 +152,9 @@ class TTSWorker:
             if (not self.path(cid).exists() and cid not in self._failed
                     and cid not in exclude
                     and self._attempts.get(cid, 0) < MAX_ATTEMPTS):
-                return cid, self._chunks[idx].text, False
-        probing = self._speed < self._fill_min_speed
-        if probing:
-            now = time.monotonic()
-            if now - self._last_fill_probe < self._fill_probe_interval:
-                return None
+                return cid, self._chunks[idx].text, False, False
+        if not allow_fill:
+            return None
         est_bytes_per_char = self._engine.sample_rate * 2 / CHARS_PER_SECOND
         spent = 0.0
         for idx in chain(range(self._position, len(self._cids)),
@@ -166,9 +166,7 @@ class TTSWorker:
             if (not self.path(cid).exists() and cid not in self._failed
                     and cid not in exclude
                     and self._attempts.get(cid, 0) < MAX_ATTEMPTS):
-                if probing:
-                    self._last_fill_probe = now
-                return cid, self._chunks[idx].text, False
+                return cid, self._chunks[idx].text, False, True
         return None
 
     def _pick_batch(self, limit: int):
@@ -176,22 +174,34 @@ class TTSWorker:
 
         An urgent chunk is returned alone: somebody is waiting on it, and a
         wide batch would make them wait for its slowest member too.
+
+        The back-fill probe is decided here, once per batch: while measured
+        speed is under fill_min_speed the fill tier opens every
+        fill_probe_interval, and the whole batch may draw from it. A probe
+        of one chunk would measure serial decode (0.6x on Qwen) and keep
+        the worker throttled forever.
         """
-        first = self._pick()
+        now = time.monotonic()
+        probing = self._speed < self._fill_min_speed
+        allow_fill = (not probing
+                      or now - self._last_fill_probe >= self._fill_probe_interval)
+        first = self._pick(allow_fill=allow_fill)
         if first is None:
             return None
-        cid, text, urgent = first
-        jobs = [(cid, text)]
-        if urgent or limit <= 1:
-            return jobs, urgent
-        claimed = {cid}
-        while len(jobs) < limit:
-            nxt = self._pick(exclude=claimed)
-            if nxt is None or nxt[2]:      # nothing left, or an urgent arrived
-                break
-            jobs.append((nxt[0], nxt[1]))
-            claimed.add(nxt[0])
-        return jobs, False
+        cid, text, urgent, fill = first
+        jobs, used_fill = [(cid, text)], fill
+        if not urgent and limit > 1:
+            claimed = {cid}
+            while len(jobs) < limit:
+                nxt = self._pick(exclude=claimed, allow_fill=allow_fill)
+                if nxt is None or nxt[2]:      # nothing left, or an urgent arrived
+                    break
+                jobs.append((nxt[0], nxt[1]))
+                claimed.add(nxt[0])
+                used_fill = used_fill or nxt[3]
+        if probing and used_fill:
+            self._last_fill_probe = now
+        return jobs, urgent
 
     def _write(self, cid: str, audio, sr: int) -> None:
         tmp = self.path(cid).with_suffix(".tmp")
