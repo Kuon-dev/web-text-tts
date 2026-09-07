@@ -58,12 +58,14 @@ class TTSWorker:
         self._failed: set[str] = set()
         self._blocked: str | None = None
         self._events: dict[str, threading.Event] = {}
+        self._epoch = 0          # bumped by set_doc: retries from an older epoch are dropped
         self._thread = threading.Thread(target=self._run, daemon=True, name="tts-worker")
         self._thread.start()
 
     # -- public API (thread-safe) ------------------------------------------
     def set_doc(self, chunks: list[Chunk], namespace: str, voice: str = "", position: int = 0) -> None:
         with self._cond:
+            self._epoch += 1
             self._chunks = list(chunks)
             self._namespace = namespace
             self._voice = voice
@@ -203,10 +205,17 @@ class TTSWorker:
         if cid in self._events:
             self._events[cid].set()
 
-    def _retry_individually(self, jobs, voice) -> None:
+    def _retry_individually(self, jobs, voice, epoch) -> None:
         """A batch call died. Re-run its items one at a time so a single bad
-        chunk cannot fail the others that happened to share its batch."""
+        chunk cannot fail the others that happened to share its batch.
+
+        Stops as soon as the document changed underneath the batch: after an
+        engine swap the old voice belongs to the wrong engine (Kokoro asked
+        for the Qwen voice "Ryan" asserts), and nobody wants the audio."""
         for cid, text in jobs:
+            with self._cond:
+                if self._epoch != epoch:
+                    return
             try:
                 audio = self._engine.synthesize(text, voice)
                 self._write(cid, audio, self._engine.sample_rate)
@@ -234,6 +243,7 @@ class TTSWorker:
                     continue
                 jobs, urgent = picked
                 voice = self._voice
+                epoch = self._epoch
                 for cid, _ in jobs:
                     self._attempts[cid] = self._attempts.get(cid, 0) + 1
             try:
@@ -261,11 +271,14 @@ class TTSWorker:
                     self._cond.wait(timeout=self._unavailable_wait)
             except Exception:
                 if len(jobs) > 1:
-                    self._retry_individually(jobs, voice)
+                    self._retry_individually(jobs, voice, epoch)
                     continue
                 cid = jobs[0][0]
-                log.exception("chunk %s failed (attempt %d)", cid[:8], self._attempts.get(cid, 0))
                 with self._cond:
+                    if self._epoch != epoch:
+                        continue                       # stale: the doc moved on
+                    log.exception("chunk %s failed (attempt %d)", cid[:8],
+                                  self._attempts.get(cid, 0))
                     if self._attempts.get(cid, 0) >= MAX_ATTEMPTS:
                         self._failed.add(cid)
 

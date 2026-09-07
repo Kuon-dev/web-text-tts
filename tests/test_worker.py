@@ -1,3 +1,4 @@
+import threading
 import time
 from pathlib import Path
 
@@ -309,3 +310,30 @@ def test_a_failed_batch_retries_each_item_alone(tmp_path):
     assert wait_until(lambda: all(worker.path(c).exists() for c in good))
     assert not worker.path(cids[2]).exists()
     assert wait_until(lambda: cids[2] in worker.status()["failed"])
+
+
+def test_a_failed_batch_is_not_retried_after_the_doc_changed(tmp_path):
+    """The engine can be swapped while a batch is in flight (the swap waits
+    on the manager lock, then load_doc re-namespaces the worker). Retrying
+    the batch's items with the OLD voice hits the NEW engine: on 2026-09-07
+    Kokoro was called with the Qwen voice 'Ryan' and failed 30 chunks."""
+    release = threading.Event()
+
+    class HoldingEngine(BatchFakeEngine):
+        def synthesize_many(self, texts, voice, urgent=False):
+            self.batches.append(list(texts))
+            release.wait(2.0)                    # the swap lands mid-batch
+            raise RuntimeError("whole batch exploded")
+
+    chunks = make_chunks(3)
+    engine = HoldingEngine()
+    worker = TTSWorker(tmp_path, engine)
+    worker.set_doc(chunks, "qwen3-ns", voice="Ryan")
+    assert wait_until(lambda: len(engine.batches) == 1)
+
+    worker.set_doc([], "kokoro-ns", voice="af_heart")   # what load_doc does after a swap
+    release.set()
+    time.sleep(0.3)
+
+    assert engine.calls == []                           # no per-item retries with "Ryan"
+    assert list(tmp_path.glob("*.wav")) == []           # nothing written under the old namespace
