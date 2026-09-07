@@ -39,7 +39,11 @@ def test_no_batched_item_exceeds_its_budget(engine):
             budget = engine.budget_seconds(text)
             assert len(audio) <= int(budget * engine.sample_rate), \
                 f"{len(audio) / engine.sample_rate:.1f}s > {budget:.1f}s for {text[:30]!r}"
-            assert float(np.abs(audio).max()) > 0.01
+            # TEXTS[4] ("「───!」") has no \w characters: is_speakable() is
+            # False, so synthesize_many returns silence without calling the
+            # model, and the loudness assertion only applies to speakable text.
+            if engine.is_speakable(text):
+                assert float(np.abs(audio).max()) > 0.01
 
 
 def test_the_breathing_line_alone_is_bounded(engine):
