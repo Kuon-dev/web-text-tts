@@ -1,7 +1,7 @@
 # Qwen3 Runaway Generation — Length Budgets for Batched Decode
 
 **Date:** 2026-09-07
-**Status:** Implemented (L4 verification pending)
+**Status:** Implemented (verified on the L4, 2026-09-07)
 **Extends:** `2026-07-23-pluggable-tts-engines-design.md` (batched decode addendum, 2026-08-20)
 
 ## Purpose
@@ -260,3 +260,25 @@ regression case.
 - **Re-deriving `QWEN_MIN_SPEED`** and `FILL_MIN_SPEED` from measured
   hardware. Still open from the 2026-08-20 addendum; batched probes make
   the current values survivable.
+
+## Addendum: L4 verification (2026-09-07)
+
+`tests/test_qwen_runaway_slow.py` passed on the L4 (2 passed in 129.66s, server
+stopped, qwen-tts 0.1.1). Then, through the running server with the engine
+switched to Qwen3 and a 459-chunk document back-filling for 240s:
+
+- 64 WAVs written, none over 29s (longest 20.2s; the largest possible budget
+  is 28.7s).
+- 3 `runaway:` warnings, each regenerated alone: 27.7s for 76 chars (budget
+  10.1s), 15.5s for 85 chars (11.1s), 7.4s for 48 chars (7.1s). The first
+  shows why the per-item check exists alongside the per-batch cap: the batch
+  cap is the LONGEST member's budget, so a short member can still run to the
+  batch cap and is only caught by its own budget.
+- 6 batches in the first two minutes, 10-60s apart. No 90s probe cadence.
+- No errors, no decoder OOM. Switching back to Kokoro released the GPU
+  (281 MiB in use afterwards).
+
+Operational note: the server runs inside a tmux session `novel-tts` whose
+pane IS the `./start.sh 2>&1 | tee -a start-console.log` command, so
+stopping it closes the session; restart with
+`tmux new-session -d -s novel-tts -c /var/tmp/web-text-tts 'bash -c "./start.sh 2>&1 | tee -a start-console.log"'`.
