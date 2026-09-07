@@ -12,6 +12,10 @@ addendum 2026-08-20) puts batch-1 decode at 0.60x, i.e. BELOW QWEN_MIN_SPEED:
 serial generation cannot feed playback on real hardware. Batching is what
 clears the bar (3.69x at max_batch=8), so the worker hands whole batches to
 synthesize_many and the policy judges the batch, not one chunk.
+
+Generation length is also unbounded by default: the model can miss EOS and
+breathe for a minute. Every call is capped at the base class's text budget
+(QWEN_OVERRUN_FACTOR), which is what bounds the decoder's padded batch too.
 """
 import hashlib
 import logging
@@ -42,6 +46,16 @@ QWEN_MIN_SPEED = 0.8            # below this the reader outruns generation
 # the server was generating showed a false knee at 8 and a false OOM at 32.
 QWEN_MAX_BATCH = 32
 QWEN_MIN_FREE_BYTES = 2_500_000_000   # 0.6B bf16 weights + KV headroom
+# Runaway guard (spec 2026-09-07). The 0.6B model sometimes never emits EOS
+# on breathy or emotive text: "Haa... haa... I can't... breathe..." (44 chars,
+# ~3s) came back as 28.4s of continuous breathing at batch 1, and the cache
+# held 124 WAVs over 17s for chunks capped at 250 chars. The library's only
+# length control is max_new_tokens per call (default 2048 frames = 164s), so
+# every call gets the budget the base class derives from the text, in codec
+# frames. This also bounds the codec decoder, which pads a whole batch to its
+# longest member: a 68s runaway in a 32-wide batch made it OOM on 3.09 GiB.
+QWEN_FRAMES_PER_SECOND = 12.5     # 12Hz tokenizer family: 12.5 frames/s per model card
+QWEN_OVERRUN_FACTOR = 1.6         # 1.6x the 15 chars/s estimate + the 2s floor
 _MODELS = {"custom": "Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice",
            "base": "Qwen/Qwen3-TTS-12Hz-0.6B-Base"}
 
@@ -61,6 +75,7 @@ class Qwen3Engine(TTSEngine):
     label = "Qwen3-TTS 0.6B"          # must match registry._META
     supported_modes = ("auto", "gpu")
     max_batch = QWEN_MAX_BATCH
+    overrun_factor = QWEN_OVERRUN_FACTOR
     default_voice = "Ryan"
     sample_rate = 24000               # confirmed by scripts/bench_qwen.py
 
@@ -110,33 +125,44 @@ class Qwen3Engine(TTSEngine):
     def _variant_for(voice: str) -> str:
         return "base" if voice.startswith("clone:") else "custom"
 
+    @staticmethod
+    def _cap(max_seconds: float | None) -> int | None:
+        # +1 so a generation that hits the cap is longer than its budget and
+        # the base class sees it as a runaway; a natural stop never exceeds it.
+        if max_seconds is None:
+            return None
+        return int(max_seconds * QWEN_FRAMES_PER_SECOND) + 1
+
     def prepare(self, device: str, voice: str) -> None:
         self._load(self._variant_for(voice))
 
-    def _generate_batch(self, texts: list[str], voice: str,
-                        device: str) -> list[np.ndarray]:
+    def _generate_batch(self, texts: list[str], voice: str, device: str,
+                        *, max_seconds: float | None = None) -> list[np.ndarray]:
         if voice.startswith("clone:"):
-            # generate_voice_clone takes a single ref clip per call
-            return super()._generate_batch(texts, voice, device)
+            # generate_voice_clone takes a single ref clip per call; the base
+            # implementation hands each item its own budget
+            return super()._generate_batch(texts, voice, device, max_seconds=max_seconds)
         model = self._load("custom")
         wavs, sr = model.generate_custom_voice(
             text=list(texts), language=_PRESET_LANG.get(voice, "Auto"),
-            speaker=voice, instruct=self._instruct or None)
+            speaker=voice, instruct=self._instruct or None,
+            max_new_tokens=self._cap(max_seconds))
         self.sample_rate = sr
         return [np.asarray(w, dtype=np.float32) for w in wavs]
 
-    def _generate(self, text: str, voice: str, device: str) -> np.ndarray:
+    def _generate(self, text: str, voice: str, device: str,
+                  *, max_seconds: float | None = None) -> np.ndarray:
         # device is always "cuda" here: policy(allow_cpu=False) never returns cpu
         if voice.startswith("clone:"):
             model = self._load("base")
             wavs, sr = model.generate_voice_clone(          # signature per bench addendum
                 text=text, ref_audio=str(self._clones.ref_path(voice)),
-                language="Auto")
+                language="Auto", max_new_tokens=self._cap(max_seconds))
         else:
             model = self._load("custom")
             wavs, sr = model.generate_custom_voice(
                 text=text, language=_PRESET_LANG.get(voice, "Auto"), speaker=voice,
-                instruct=self._instruct or None)
+                instruct=self._instruct or None, max_new_tokens=self._cap(max_seconds))
         self.sample_rate = sr
         return np.asarray(wavs[0], dtype=np.float32)
 

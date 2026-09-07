@@ -7,7 +7,7 @@ import pytest
 
 @pytest.fixture()
 def fake_qwen(monkeypatch):
-    calls = {"loaded": [], "custom": [], "clone": []}
+    calls = {"loaded": [], "custom": [], "clone": [], "caps": []}
 
     class FakeModel:
         @classmethod
@@ -15,13 +15,16 @@ def fake_qwen(monkeypatch):
             calls["loaded"].append(name)
             return cls()
 
-        def generate_custom_voice(self, *, text, language, speaker, instruct=None):
+        def generate_custom_voice(self, *, text, language, speaker, instruct=None,
+                                  max_new_tokens=None):
             calls["custom"].append((text, language, speaker, instruct))
+            calls["caps"].append(max_new_tokens)
             n = len(text) if isinstance(text, list) else 1
             return [np.zeros(24000, dtype=np.float32) for _ in range(n)], 24000
 
-        def generate_voice_clone(self, *, text, ref_audio, language):
+        def generate_voice_clone(self, *, text, ref_audio, language, max_new_tokens=None):
             calls["clone"].append((text, ref_audio, language))
+            calls["caps"].append(max_new_tokens)
             return [np.zeros(24000, dtype=np.float32)], 24000
 
     mod = types.ModuleType("qwen_tts")
@@ -128,3 +131,42 @@ def test_prepare_loads_the_variant_before_the_clock_starts(fake_qwen, tmp_path):
 
     assert fake_qwen["loaded"] == ["Qwen/Qwen3-TTS-12Hz-0.6B-CustomVoice"]
     assert e.info()["cold"] is False
+
+
+def test_qwen_declares_a_budget_and_cap():
+    from tts.qwen import QWEN_FRAMES_PER_SECOND, QWEN_OVERRUN_FACTOR, Qwen3Engine
+    assert (QWEN_FRAMES_PER_SECOND, QWEN_OVERRUN_FACTOR) == (12.5, 1.6)
+    assert Qwen3Engine.overrun_factor == 1.6
+    assert Qwen3Engine._cap(None) is None
+    # +1 so a capped generation is strictly longer than its budget
+    assert Qwen3Engine._cap(18.0) == 226
+
+
+def test_preset_call_is_capped_at_the_budget_in_codec_frames(fake_qwen, tmp_path):
+    e = make_engine(fake_qwen, tmp_path)
+    text = "x" * 150                       # 10s at 15 chars/s -> 1.6x + 2s = 18s
+
+    e.synthesize(text, "Ryan")
+
+    assert e.budget_seconds(text) == pytest.approx(18.0)
+    assert fake_qwen["caps"] == [226]
+
+
+def test_batch_cap_follows_the_longest_member(fake_qwen, tmp_path):
+    e = make_engine(fake_qwen, tmp_path)
+
+    e.synthesize_many(["x" * 30, "x" * 150, "x" * 60], "Ryan")
+
+    assert fake_qwen["caps"] == [226]
+
+
+def test_clone_calls_are_capped_per_item(fake_qwen, tmp_path):
+    import tests.test_voices as tv
+    e = make_engine(fake_qwen, tmp_path)
+    voice = e._clones.add(tv.clip_bytes(), name="Narrator A")
+
+    e.synthesize_many(["x" * 30, "x" * 150], voice.id)
+
+    # clone path is one model call per item, each with its own budget:
+    # 30 chars -> 1.6 * 2s + 2s = 5.2s -> int(5.2 * 12.5) + 1 = 66 frames
+    assert fake_qwen["caps"] == [66, 226]
