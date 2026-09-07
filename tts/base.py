@@ -1,4 +1,5 @@
 """Engine contract: Voice, EngineUnavailable, the TTSEngine template method."""
+import logging
 import re
 import time
 from abc import ABC, abstractmethod
@@ -6,6 +7,8 @@ from dataclasses import dataclass
 from typing import ClassVar
 
 import numpy as np
+
+log = logging.getLogger("novel-tts")
 
 DEVICE_MODES = ("auto", "gpu", "cpu")
 CHARS_PER_SECOND = 15.0  # narration pace measured on real chapters
@@ -55,7 +58,8 @@ class TTSEngine(ABC):
         self.prepare(device, voice)
         start = time.monotonic()
         try:
-            audio = self._generate(text, voice, device)
+            audio = self._call_generate(text, voice, device)
+            audio = self._enforce_budget(text, audio, voice, device)
         except EngineUnavailable:
             raise                      # a gate, not a generation failure
         except Exception as exc:
@@ -104,7 +108,9 @@ class TTSEngine(ABC):
         self.prepare(device, voice)
         start = time.monotonic()
         try:
-            audio = self._generate_batch([t for _, t in batch], voice, device)
+            audio = self._call_generate_batch([t for _, t in batch], voice, device)
+            audio = [self._enforce_budget(t, a, voice, device)
+                     for (_, t), a in zip(batch, audio)]
         except EngineUnavailable:
             raise                      # a gate, not a generation failure
         except Exception as exc:
@@ -122,9 +128,38 @@ class TTSEngine(ABC):
             self.policy.measured((samples / self.sample_rate) / wall)
         return out
 
-    def _generate_batch(self, texts: list[str], voice: str,
-                        device: str) -> list[np.ndarray]:
-        return [self._generate(t, voice, device) for t in texts]
+    def _generate_batch(self, texts: list[str], voice: str, device: str,
+                        *, max_seconds: float | None = None) -> list[np.ndarray]:
+        return [self._call_generate(t, voice, device) for t in texts]
+
+    def _call_generate(self, text, voice, device):
+        budget = self.budget_seconds(text)
+        if budget is None:
+            return self._generate(text, voice, device)
+        return self._generate(text, voice, device, max_seconds=budget)
+
+    def _call_generate_batch(self, texts, voice, device):
+        if self.overrun_factor is None:
+            return self._generate_batch(texts, voice, device)
+        return self._generate_batch(
+            texts, voice, device,
+            max_seconds=max(self.budget_seconds(t) for t in texts))
+
+    def _enforce_budget(self, text, audio, voice, device):
+        """Over budget = the engine hit its cap without an EOS. Try once more
+        alone (sampling is stochastic; the second take is usually fine), and
+        keep whatever comes back, cut at the budget: at that point the audio
+        is already breathing, and a fade would only lengthen it."""
+        budget = self.budget_seconds(text)
+        if budget is None:
+            return audio
+        limit = int(budget * self.sample_rate)
+        if len(audio) <= limit:
+            return audio
+        log.warning("runaway: %.1fs of audio for %d chars (budget %.1fs), regenerating alone",
+                    len(audio) / self.sample_rate, len(text), budget)
+        audio = self._generate(text, voice, device, max_seconds=budget)
+        return audio[:limit]
 
     @abstractmethod
     def _generate(self, text: str, voice: str, device: str) -> np.ndarray: ...

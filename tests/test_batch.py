@@ -266,3 +266,89 @@ def test_budget_is_factor_times_narration_pace_plus_floor():
     assert engine.budget_seconds("x" * 150) == pytest.approx(18.0)
     # interjections are dominated by the floor
     assert engine.budget_seconds("Mm.") == pytest.approx(1.6 * 3 / 15 + 2.0)
+
+
+def test_single_synthesize_receives_its_own_budget():
+    engine = BudgetEngine(FakePolicy())
+
+    engine.synthesize("x" * 30, "v1")
+
+    assert engine.caps == [pytest.approx(engine.budget_seconds("x" * 30))]
+
+
+def test_batch_receives_the_largest_member_budget():
+    engine = BudgetEngine(FakePolicy())
+
+    engine.synthesize_many(["x" * 30, "x" * 150, "x" * 60], "v1")
+
+    assert engine.caps == [pytest.approx(engine.budget_seconds("x" * 150))]
+
+
+def test_unbudgeted_engines_are_called_without_a_cap():
+    # BatchEngine/ToyEngine take no max_seconds keyword: passing one would
+    # TypeError, so this proves the keyword is only sent to budgeted engines.
+    engine = BatchEngine(FakePolicy())
+
+    engine.synthesize_many(["a"], "v1")
+    engine.synthesize("a", "v1")
+
+    assert engine.batch_calls == [["a"]]
+    assert engine.generate_calls == ["a"]
+
+
+def test_an_over_budget_item_is_regenerated_alone_and_truncated():
+    bad = "Haa... haa... haa... I can't... breathe..."
+    engine = BudgetEngine(FakePolicy(), overrun_texts={bad})
+
+    out = engine.synthesize_many(["fine.", bad, "also fine."], "v1")
+
+    assert engine.batch_calls == [["fine.", bad, "also fine."]]
+    assert engine.generate_calls == [bad]                   # retried alone, once
+    assert engine.caps[-1] == pytest.approx(engine.budget_seconds(bad))
+    # the retry still came back at 60s: kept, but cut at the budget
+    assert len(out[1]) == int(engine.budget_seconds(bad) * engine.sample_rate)
+    # in-budget neighbours are untouched
+    assert len(out[0]) == engine.sample_rate
+    assert len(out[2]) == engine.sample_rate
+
+
+def test_an_over_budget_single_item_is_also_regenerated_and_truncated():
+    bad = "Haa..."
+    engine = BudgetEngine(FakePolicy(), overrun_texts={bad})
+
+    audio = engine.synthesize(bad, "v1")
+
+    assert engine.generate_calls == [bad, bad]
+    assert len(audio) == int(engine.budget_seconds(bad) * engine.sample_rate)
+
+
+def test_an_in_budget_item_is_never_retried():
+    engine = BudgetEngine(FakePolicy())
+
+    out = engine.synthesize_many(["fine."], "v1")
+
+    assert engine.generate_calls == []
+    assert len(out[0]) == engine.sample_rate
+
+
+def test_retry_time_counts_toward_the_batch_speed(monkeypatch):
+    clock = ManualClock()
+    monkeypatch.setattr("tts.base.time.monotonic", clock)
+    bad = "Haa..."
+
+    class TimedBudgetEngine(BudgetEngine):
+        def _generate_batch(self, texts, voice, device, *, max_seconds=None):
+            clock.t += 2.0
+            return super()._generate_batch(texts, voice, device, max_seconds=max_seconds)
+
+        def _generate(self, text, voice, device, *, max_seconds=None):
+            clock.t += 2.0
+            return super()._generate(text, voice, device, max_seconds=max_seconds)
+
+    engine = TimedBudgetEngine(FakePolicy(device="cuda"), seconds=4.0, overrun_texts={bad})
+
+    engine.synthesize_many(["x" * 60, bad], "v1")
+
+    # 2s batch + 2s retry = 4s wall; audio = 4s + the truncated budget
+    audio_s = 4.0 + int(engine.budget_seconds(bad) * engine.sample_rate) / engine.sample_rate
+    assert engine.policy.measured_speeds == [pytest.approx(audio_s / 4.0)]
