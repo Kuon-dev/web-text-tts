@@ -9,7 +9,7 @@ class FakeAudio {
   playbackRate = 1
   currentTime = 0
   ended = false
-  addEventListener() {}
+  addEventListener(_name: string, _fn: () => void) {}
   pause() {}
   play() {
     return Promise.resolve()
@@ -90,4 +90,130 @@ it("flushPosition does not POST while no document has loaded yet", async () => {
 
   const posts = fetchMock.mock.calls.filter((c) => String(c[0]).includes("/api/state"))
   expect(posts.length).toBe(0)
+})
+
+/** Fake <audio> that records its "ended" listener so a test can fire it. */
+class EndableAudio extends FakeAudio {
+  static instances: EndableAudio[] = []
+  listeners: Record<string, () => void> = {}
+  constructor() {
+    super()
+    EndableAudio.instances.push(this)
+  }
+  addEventListener(name: string, fn: () => void) {
+    this.listeners[name] = fn
+  }
+}
+
+async function loadTwoChunkDoc(pause_ms: number) {
+  vi.resetModules()
+  vi.useFakeTimers()
+  EndableAudio.instances = []
+  vi.stubGlobal("Audio", EndableAudio)
+  const fetchMock = vi.fn().mockImplementation(async (...args) => {
+    const url = String(args[0])
+    if (url.includes("/api/voices")) return { ok: true, json: async () => ({ voices: [], current: "" }) }
+    if (url.includes("/api/doc")) {
+      return {
+        ok: true,
+        json: async () => ({
+          doc_id: "d1",
+          chunks: [
+            { id: "c1", text: "One.", para: 0 },
+            { id: "c2", text: "Two.", para: 0 },
+          ],
+          position: 0,
+          voice: "v1",
+          speed: 1,
+          volume: 1,
+          pause_ms,
+        }),
+      }
+    }
+    if (url.includes("/api/status")) {
+      return { ok: true, json: async () => ({ doc_id: "d1", ready: ["c1", "c2"], failed: [], blocked: null }) }
+    }
+    return { ok: true, json: async () => ({}) }
+  })
+  vi.stubGlobal("fetch", fetchMock)
+  const { player } = await import("./player")
+  player.start()
+  await vi.advanceTimersByTimeAsync(0)
+  const audio = EndableAudio.instances[0]
+  player.togglePlay()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(audio.src).toContain("c1")
+  return { player, audio }
+}
+
+it("waits pause_ms after a chunk ends before starting the next one", async () => {
+  const { player, audio } = await loadTwoChunkDoc(500)
+  expect(player.getSnapshot().pauseMs).toBe(500)
+
+  audio.listeners.ended()
+  await vi.advanceTimersByTimeAsync(0)
+  // The reader highlight moves to the next sentence at once, but audio waits.
+  expect(player.getSnapshot().idx).toBe(1)
+  expect(audio.src).toContain("c1")
+
+  await vi.advanceTimersByTimeAsync(499)
+  expect(audio.src).toContain("c1")
+  await vi.advanceTimersByTimeAsync(1)
+  expect(audio.src).toContain("c2")
+})
+
+it("scales the pause by playback speed", async () => {
+  const { player, audio } = await loadTwoChunkDoc(1000)
+  player.setSpeed(2)
+
+  audio.listeners.ended()
+  await vi.advanceTimersByTimeAsync(499)
+  expect(audio.src).toContain("c1")
+  await vi.advanceTimersByTimeAsync(1)
+  expect(audio.src).toContain("c2")
+})
+
+it("starts the next chunk immediately when pause_ms is 0", async () => {
+  const { audio } = await loadTwoChunkDoc(0)
+  audio.listeners.ended()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(audio.src).toContain("c2")
+})
+
+it("pausing during the gap cancels the pending chunk start", async () => {
+  const { player, audio } = await loadTwoChunkDoc(500)
+  audio.listeners.ended()
+  await vi.advanceTimersByTimeAsync(100)
+  player.togglePlay() // pause
+  await vi.advanceTimersByTimeAsync(1000)
+  expect(audio.src).toContain("c1")
+  expect(player.getSnapshot().playing).toBe(false)
+})
+
+it("jumping during the gap plays the target at once and drops the stale timer", async () => {
+  const { player, audio } = await loadTwoChunkDoc(500)
+  audio.listeners.ended()
+  await vi.advanceTimersByTimeAsync(100)
+  const playSpy = vi.spyOn(audio, "play")
+  player.jump(0)
+  await vi.advanceTimersByTimeAsync(0)
+  expect(audio.src).toContain("c1")
+  expect(playSpy).toHaveBeenCalledTimes(1)
+  await vi.advanceTimersByTimeAsync(1000)
+  // the stale gap timer must not fire a second play() for c2
+  expect(playSpy).toHaveBeenCalledTimes(1)
+  expect(audio.src).toContain("c1")
+})
+
+it("setPause commits pause_ms to the server", async () => {
+  const { player } = await loadTwoChunkDoc(300)
+  const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>
+  fetchMock.mockClear()
+  player.setPause(750)
+  expect(player.getSnapshot().pauseMs).toBe(750)
+  player.commitPause()
+  await vi.advanceTimersByTimeAsync(0)
+  const posts = fetchMock.mock.calls.filter((c) => String(c[0]).includes("/api/state"))
+  expect(posts.length).toBe(1)
+  expect(JSON.parse(posts[0][1].body)).toEqual({ pause_ms: 750 })
 })

@@ -23,6 +23,8 @@ export interface PlayerSnapshot {
   failed: ReadonlySet<string>
   speed: number
   volume: number
+  /** silence inserted between chunks (= sentences), at 1x speed */
+  pauseMs: number
   muted: boolean
   voice: string
   voices: Voice[]
@@ -86,6 +88,7 @@ class PlayerEngine {
       failed: new Set(this.failed),
       speed: this.doc.speed,
       volume: this.doc.volume ?? 1,
+      pauseMs: this.doc.pause_ms ?? 0,
       muted: this.muted,
       voice: this.doc.voice,
       voices: this.voices,
@@ -215,8 +218,24 @@ class PlayerEngine {
     }
     this.idx += 1
     this.savePosition()
-    if (this.playing) this.playCurrent()
-    else this.emit()
+    if (!this.playing) {
+      this.emit()
+      return
+    }
+    // Every chunk is one sentence (chunker.py), so this gap is the pause
+    // between sentences. Scaled by playback rate: a faster narrator also
+    // breathes faster. The token invalidates the timer when a jump, pause or
+    // paste starts something else before it fires.
+    const gap = (this.doc.pause_ms ?? 0) / this.doc.speed
+    if (gap <= 0) {
+      this.playCurrent()
+      return
+    }
+    const token = ++this.playToken
+    this.emit() // highlight the next sentence during the silence
+    setTimeout(() => {
+      if (this.playing && token === this.playToken) this.playCurrent()
+    }, gap)
   }
 
   jump(i: number) {
@@ -271,6 +290,15 @@ class PlayerEngine {
 
   commitVolume() {
     api("/api/state", { volume: this.doc.volume }).catch(() => {})
+  }
+
+  setPause(ms: number) {
+    this.doc.pause_ms = Math.max(0, Math.round(ms))
+    this.emit()
+  }
+
+  commitPause() {
+    api("/api/state", { pause_ms: this.doc.pause_ms }).catch(() => {})
   }
 
   toggleMute() {

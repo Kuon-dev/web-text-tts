@@ -11,9 +11,15 @@ def test_split_paragraphs_strips_bom_crlf_and_inner_whitespace():
     assert split_paragraphs(text) == ["Hello world.", "Next line."]
 
 
-def test_chunk_text_short_paragraph_is_one_chunk():
+def test_chunk_text_one_chunk_per_sentence():
+    # The player inserts an adjustable pause between chunks, so every
+    # sentence must be its own chunk for the pause to land between sentences.
     chunks = chunk_text("A tiny paragraph. It has two sentences.")
-    assert chunks == [Chunk(text="A tiny paragraph. It has two sentences.", para=0)]
+    assert chunks == [Chunk(text="A tiny paragraph.", para=0), Chunk(text="It has two sentences.", para=0)]
+
+
+def test_chunk_text_single_sentence_paragraph_is_one_chunk():
+    assert chunk_text("Just one sentence here.") == [Chunk(text="Just one sentence here.", para=0)]
 
 
 def test_chunk_text_para_indexes():
@@ -21,11 +27,11 @@ def test_chunk_text_para_indexes():
     assert [c.para for c in chunks] == [0, 1]
 
 
-def test_chunk_text_groups_sentences_under_limit():
+def test_chunk_text_never_groups_sentences_under_limit():
     sent = "This sentence is about sixty characters long, give or take. "
-    para = (sent * 10).strip()  # ~600 chars -> must split
+    para = (sent * 10).strip()  # ~600 chars, ten sentences -> ten chunks
     chunks = chunk_text(para)
-    assert len(chunks) >= 2
+    assert len(chunks) == 10
     assert all(len(c.text) <= MAX_CHUNK_CHARS for c in chunks)
     # nothing lost: rejoined text equals original modulo spacing
     assert " ".join(c.text for c in chunks) == para
@@ -55,6 +61,7 @@ def test_quoted_dialogue_not_mangled():
     chunks = chunk_text(para)
     assert " ".join(c.text for c in chunks) == para  # no characters lost at split points
     assert all(len(c.text) <= MAX_CHUNK_CHARS for c in chunks)
+    assert len(chunks) == 16  # quote line and narration line are separate sentences
 
 
 def test_curly_quoted_dialogue_splits_at_sentence_boundaries():

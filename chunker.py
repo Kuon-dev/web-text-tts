@@ -3,11 +3,14 @@ import hashlib
 import re
 from dataclasses import dataclass
 
-# A chunk is the unit of time-to-first-audio: the player can't start speaking
-# a chunk until its whole WAV exists, so under GPU contention (a game running)
-# the worst-case stall is the chunk's full audio length. 250 keeps that under
-# ~16s while still exceeding the longest real sentence observed (~246 chars),
-# so sentences are never hard-split mid-flow.
+# A chunk is one sentence: the player inserts an adjustable pause between
+# chunks (state "pause_ms"), and that pause has to land between sentences, so
+# sentences are never grouped. A chunk is also the unit of time-to-first-audio:
+# the player can't start speaking it until its whole WAV exists, so under GPU
+# contention (a game running) the worst-case stall is the chunk's full audio
+# length. 250 caps that under ~16s while still exceeding the longest real
+# sentence observed (~246 chars), so sentences are only hard-split when they
+# run away past that.
 MAX_CHUNK_CHARS = 250
 
 # An illustration reference on its own line: [img:<sha1 of image bytes>].
@@ -55,22 +58,12 @@ def _hard_split(sentence: str, max_chars: int) -> list[str]:
     return parts
 
 
-def _group_sentences(sentences: list[str], max_chars: int = MAX_CHUNK_CHARS) -> list[str]:
-    groups: list[str] = []
-    current = ""
+def _cap_sentences(sentences: list[str], max_chars: int = MAX_CHUNK_CHARS) -> list[str]:
+    """One chunk per sentence; only an over-long sentence is split further."""
+    out: list[str] = []
     for sentence in sentences:
-        pieces = _hard_split(sentence, max_chars) if len(sentence) > max_chars else [sentence]
-        for piece in pieces:
-            if not current:
-                current = piece
-            elif len(current) + 1 + len(piece) <= max_chars:
-                current = current + " " + piece
-            else:
-                groups.append(current)
-                current = piece
-    if current:
-        groups.append(current)
-    return groups
+        out.extend(_hard_split(sentence, max_chars) if len(sentence) > max_chars else [sentence])
+    return out
 
 
 def chunk_text(text: str) -> list[Chunk]:
@@ -78,8 +71,8 @@ def chunk_text(text: str) -> list[Chunk]:
     for para_idx, para in enumerate(split_paragraphs(text)):
         if IMG_MARKER.match(para):
             continue
-        for group in _group_sentences(_split_sentences(para)):
-            chunks.append(Chunk(text=group, para=para_idx))
+        for sentence in _cap_sentences(_split_sentences(para)):
+            chunks.append(Chunk(text=sentence, para=para_idx))
     return chunks
 
 

@@ -28,7 +28,10 @@ log = logging.getLogger("novel-tts")
 STATIC_DIR = Path(__file__).parent / "static"
 POLL_SECONDS = 1.0
 DEFAULT_STATE = {"positions": {}, "voices": {"kokoro": "af_heart"}, "speed": 1.0,
-                 "volume": 1.0, "engine": "kokoro", "device_mode": "auto", "instruct": ""}
+                 "volume": 1.0, "pause_ms": 300, "engine": "kokoro", "device_mode": "auto",
+                 "instruct": ""}
+# Silence the player inserts between chunks (= sentences, see chunker.py).
+MAX_PAUSE_MS = 2000
 _ENGINE_DEFAULT_VOICE = {"kokoro": "af_heart", "qwen3": "Ryan"}
 
 # Origins the Tauri desktop shell can present. Starlette matches allow_origins
@@ -60,6 +63,7 @@ class StateBody(BaseModel):
     voice: str | None = None
     speed: float | None = None
     volume: float | None = None
+    pause_ms: float | None = None
     engine: str | None = None
     device_mode: str | None = None
     instruct: str | None = None
@@ -100,6 +104,8 @@ class AppState:
                     loaded.pop("speed", None)
                 if not isinstance(loaded.get("volume"), (int, float)) or isinstance(loaded.get("volume"), bool):
                     loaded.pop("volume", None)
+                if not isinstance(loaded.get("pause_ms"), (int, float)) or isinstance(loaded.get("pause_ms"), bool):
+                    loaded.pop("pause_ms", None)
                 if not isinstance(loaded.get("engine"), str):
                     loaded.pop("engine", None)
                 if loaded.get("device_mode") not in ("auto", "gpu", "cpu"):
@@ -155,6 +161,7 @@ class AppState:
             "voice": voice,
             "speed": self.state["speed"],
             "volume": self.state["volume"],
+            "pause_ms": self.state["pause_ms"],
             "instruct": self.state["instruct"],
             "position": self.position(),
             "chunks": [
@@ -328,6 +335,8 @@ def create_app(data_dir: Path, worker, audio_wait: float = 30.0, *, manager,
                 st.state["speed"] = min(3.0, max(0.5, body.speed))
             if body.volume is not None:
                 st.state["volume"] = min(1.0, max(0.0, body.volume))
+            if body.pause_ms is not None:
+                st.state["pause_ms"] = int(min(MAX_PAUSE_MS, max(0, body.pause_ms)))
             if body.engine is not None and body.engine != manager.engine_id:
                 # device_mode is a preference, never clobbered here: if the target
                 # engine doesn't support it it just runs "auto" for now, and

@@ -10,7 +10,7 @@ Paste a chapter (button top right, or edit `novel.txt`), press Play.
 
 - Space = play/pause · ←/→ = skip chunk · click any sentence to jump
 - Bottom player bar: searchable voice combobox (grouped by engine/language),
-  transport, volume + mute, speed popover, clickable chapter-progress strip
+  transport, volume + mute, speed popover (with pause-between-sentences slider), clickable chapter-progress strip
 - Engine picker (settings): **Kokoro-82M** (default, 16 voices; falls back to CPU
   under GPU contention) or **Qwen3-TTS 1.7B** (9 preset speakers incl. native
   Japanese, GPU-only; pauses generation when GPU is busy — playback waits, UI
@@ -18,7 +18,7 @@ Paste a chapter (button top right, or edit `novel.txt`), press Play.
 - Aa menu (top right): theme (light / dark / system) + accent color, reading font
   (Georgia / Literata / Inter / System), size, line & paragraph spacing, text
   width, justify, auto-scroll — saved in the browser
-- Position (per chapter), voice, speed, and volume are saved — close anything, it resumes.
+- Position (per chapter), voice, speed, volume, and sentence pause are saved — close anything, it resumes.
 - Audio cache: `cache/` (2 GiB cap, auto-evicted). Switching engine, changing style
   instruction, or replacing a clone's reference clip regenerates that voice's
   cached audio. State: `state.json`.
@@ -54,6 +54,32 @@ playback), `get_status()` (position, engine, voice, what has audio yet).
 The agent does the translating — no API key, and the server sends nothing anywhere
 except the page fetch itself. A load lands in the open browser within a couple of
 seconds. If `mcp` isn't installed the reader still runs, just without `/mcp`.
+
+## Remote GPU deployment (Tokyo L4 box)
+
+A second checkout runs on `ai-tokyo-g6-xlarge` (SSH alias, `~/.ssh/config`;
+EC2 `i-022412f4ce64ccf2f`, AI-GPU-Dev, ap-northeast-1, NVIDIA L4) at
+`/var/tmp/web-text-tts`, for GPU access instead of the local Mac. It's a
+manual deployment — not a git checkout, no systemd unit, no nginx proxy
+(nginx on that box only fronts an unrelated app on :8000) — so it doesn't
+survive a reboot and won't be found by grepping for "tts" in any repo/doc,
+only by listing `/var/tmp` on the box itself.
+
+Start it (detached tmux session so it survives SSH disconnect):
+
+    ssh ai-tokyo-g6-xlarge "tmux new-session -d -s novel-tts -c /var/tmp/web-text-tts './start.sh 2>&1 | tee -a start-console.log'"
+
+It listens on `127.0.0.1:8765` (same default port as local). Reach it from
+the Mac via an SSH tunnel:
+
+    ssh -f -N -L 8765:127.0.0.1:8765 ai-tokyo-g6-xlarge
+
+then open `http://localhost:8765`. Check it's up / reattach to logs:
+
+    ssh ai-tokyo-g6-xlarge "ss -tlnp | grep 8765"   # confirms it's listening
+    ssh ai-tokyo-g6-xlarge -t "tmux attach -t novel-tts"
+
+`sox` isn't installed on that box — harmless warning, not a hard dependency.
 
 ## Dev
 

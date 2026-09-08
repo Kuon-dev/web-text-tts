@@ -242,6 +242,23 @@ def test_state_volume_is_clamped_and_persisted(tmp_path):
     assert client2.get("/api/doc").json()["volume"] == 0.35
 
 
+def test_state_pause_ms_is_clamped_and_persisted(tmp_path):
+    client, _ = make_client(tmp_path)
+    client.post("/api/doc", json={"text": "One.\nTwo.\nThree."})
+
+    assert client.get("/api/doc").json()["pause_ms"] == 300  # default
+    resp = client.post("/api/state", json={"pause_ms": 99999})
+    assert resp.status_code == 200
+    assert client.get("/api/doc").json()["pause_ms"] == 2000  # clamped high
+    client.post("/api/state", json={"pause_ms": -50})
+    assert client.get("/api/doc").json()["pause_ms"] == 0  # clamped low
+    client.post("/api/state", json={"pause_ms": 450.7})
+    assert client.get("/api/doc").json()["pause_ms"] == 450  # whole milliseconds
+    # fresh app over the same data_dir = server restart
+    client2, _ = make_client(tmp_path)
+    assert client2.get("/api/doc").json()["pause_ms"] == 450
+
+
 def test_audio_waits_for_async_generation(tmp_path):
     client, worker = make_client(tmp_path, worker_cls=AsyncGenWorker, audio_wait=2.0)
     client.post("/api/doc", json={"text": "Hello there."})
@@ -281,7 +298,7 @@ def test_malformed_state_fields_fall_back(tmp_path):
     # kinds of bogus persisted state must be absorbed without crashing.
     (tmp_path / "state.json").write_text(json.dumps({
         "positions": None, "voices": "not_a_dict", "speed": "fast", "volume": True,
-        "engine": "qwen3", "device_mode": "cpu",
+        "pause_ms": "long", "engine": "qwen3", "device_mode": "cpu",
     }))
     manager = FakeManager()
     manager.engine_id = "qwen3"  # mirrors main() constructing the manager on "qwen3"
@@ -289,6 +306,7 @@ def test_malformed_state_fields_fall_back(tmp_path):
                      engines=lambda: FakeManager.CATALOG)
     body = TestClient(app).get("/api/doc").json()
     assert body["voice"] == "Ryan" and body["speed"] == 1.0 and body["volume"] == 1.0
+    assert body["pause_ms"] == 300
     assert manager.modes == ["auto"]  # cpu unsupported by qwen3 -> corrected at startup
 
 

@@ -18,6 +18,8 @@ export interface Doc {
   voice: string
   speed: number
   volume?: number
+  /** silence the player inserts between chunks (= sentences) */
+  pause_ms?: number
   instruct?: string
   images?: ImageRef[]
 }

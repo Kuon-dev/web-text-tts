@@ -96,7 +96,7 @@ function TimeDisplay({ playing, hasChunks }: { playing: boolean; hasChunks: bool
 }
 
 export function PlayerBar() {
-  const { chunks, idx, playing, speed, volume, muted, voice, voices, engine, ready, failed, blocked } = usePlayer()
+  const { chunks, idx, playing, speed, volume, pauseMs, muted, voice, voices, engine, ready, failed, blocked } = usePlayer()
   const n = chunks.length
   const pct = n ? ((idx + 1) / n) * 100 : 0
   const effectiveVolume = muted ? 0 : volume
@@ -242,6 +242,19 @@ export function PlayerBar() {
                     </Button>
                   ))}
                 </div>
+                <div className="flex items-center justify-between pt-1">
+                  <Label className="text-xs text-muted-foreground">Pause between sentences</Label>
+                  <span className="text-xs tabular-nums text-muted-foreground">{(pauseMs / 1000).toFixed(2)}s</span>
+                </div>
+                <Slider
+                  value={[pauseMs]}
+                  min={0}
+                  max={2000}
+                  step={50}
+                  onValueChange={([v]) => player.setPause(v)}
+                  onValueCommit={() => player.commitPause()}
+                  aria-label="Pause between sentences"
+                />
               </div>
             </PopoverContent>
           </Popover>
