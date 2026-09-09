@@ -128,7 +128,10 @@ Sample text (original, fixed):
 > slid past — seven, eight — and only then let herself breathe.
 >
 > "You're late," said the man in the grey coat, not unkindly. *So are you*,
-> she thought, and said nothing. [← highlighted sentence]
+> she thought, and said nothing.
+
+The quoted sentence ("You're late," …) is the highlighted one, so the
+italic phrase stays unhighlighted and readable.
 
 Caption under the card, mono 11px muted: `Georgia · 18 px · 1.75 · ≈ 800 px
 column`. The column figure uses `readerMaxWidth(width)` = `(width + 6) * 16`,
@@ -284,10 +287,11 @@ Controls 2–4 render only when a wallpaper exists, as today.
 New:
 
 - `frontend/src/lib/view.ts` — `parseHash`, `hashFor`, `useView`.
-- `frontend/src/lib/settings.ts` — `stepValue`, `SECTION_DEFAULTS`,
-  `filterFonts`, `miniatureBackground`, section metadata (ids, labels,
-  icons are attached in the component).
-- `frontend/src/lib/view.test.ts`, `frontend/src/lib/settings.test.ts`.
+- `frontend/src/lib/settings.ts` — `stepValue`, `formatValue`, `rovingNext`
+  (arrow-key navigation shared by the segmented control and the font list),
+  `SECTION_DEFAULTS`, `FONT_FILTERS`, `filterFonts`.
+- `frontend/src/lib/view.test.ts`, `frontend/src/lib/settings.test.ts`,
+  `frontend/src/lib/reading.test.ts`, `frontend/src/lib/wallpaper.test.ts`.
 - `frontend/src/components/settings/SettingsPage.tsx` — shell: header, rail,
   section switch, preview slot, Escape handling.
 - `frontend/src/components/settings/controls.tsx` — `SectionHeader`,
@@ -304,6 +308,9 @@ Changed:
   the page; drops `resetAll`.
 - `frontend/src/components/TopBar.tsx` — new props, toggle button.
 - `frontend/src/lib/reading.ts` — adds `readerMaxWidth`.
+- `frontend/src/lib/wallpaper.ts` — adds `wallpaperFitStyle(fit, scale?)`,
+  the fit → `background-size`/`-repeat` mapping moved out of `App.tsx`; the
+  optional `scale` shrinks tile / actual-size images for the miniature.
 - `frontend/src/components/Reader.tsx` — uses `readerMaxWidth`.
 - `README.md` — the "Aa menu" bullet becomes the settings page.
 
@@ -318,11 +325,14 @@ Pure logic has node tests under the existing vitest setup
 - `view.test.ts` — `parseHash` for `""`, `#`, `#settings`,
   `#settings/reading`, `#settings/bogus`, `#other`; `hashFor` round-trips.
 - `settings.test.ts` — `stepValue` precision and clamping at both bounds
-  for every step used (1, 5, 0.05, 0.1); `SECTION_DEFAULTS` keys and values
-  match `DEFAULT_PREFS`; `filterFonts("All")` returns every group in order
-  and a group filter returns exactly that group; `miniatureBackground` for
-  the five fits at a given ratio (cover/contain/stretch unchanged, tile and
-  center scaled); `readerMaxWidth(44) === 800`.
+  for every step used (1, 5, 0.05, 0.1); `formatValue` decimals;
+  `rovingNext` arrows, wrap, Home/End, and the filtered-out fallback;
+  `SECTION_DEFAULTS` keys partition `DEFAULT_PREFS` and values match;
+  `filterFonts("All")` returns every group in order and a group filter
+  returns exactly that group.
+- `wallpaper.test.ts` — `wallpaperFitStyle` for the five fits with and
+  without a scale (cover/contain/stretch unchanged, tile and center
+  scaled, never below 1px). `reading.test.ts` — `readerMaxWidth(44) === 800`.
 
 Everything else is verified by running it: `npm run build -w frontend`
 (type check + bundle), `npm run lint -w frontend`, `npm test -w frontend`,
