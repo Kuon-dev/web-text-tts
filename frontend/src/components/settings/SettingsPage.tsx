@@ -57,8 +57,10 @@ export function SettingsPage(props: SettingsPageProps) {
     return () => document.removeEventListener("keydown", onKey)
   }, [onClose])
 
+  // Clear the hovered font on every section change, hash-driven ones included.
+  useEffect(() => setHoverFont(null), [section])
+
   const switchTo = (s: Section) => {
-    setHoverFont(null)
     onSectionChange(s)
     if (window.scrollY > 0) {
       const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches

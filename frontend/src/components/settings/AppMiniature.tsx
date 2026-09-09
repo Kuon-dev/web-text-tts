@@ -39,7 +39,7 @@ export function AppMiniature({ prefs, theme, dark, wallpaper, caption }: Props) 
         : "No wallpaper"
 
   return (
-    <div className="space-y-2">
+    <div className="max-w-[360px] space-y-2 xl:max-w-none">
       <div ref={ref} aria-hidden className="relative aspect-[16/10] overflow-hidden rounded-lg border bg-background">
         {wallpaper && ratio > 0 && (
           <div

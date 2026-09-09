@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 
 export type Section = "appearance" | "reading" | "wallpaper" | "voice"
 export const SECTIONS: readonly Section[] = ["appearance", "reading", "wallpaper", "voice"]
@@ -29,10 +29,21 @@ let lastSection: Section = "appearance"
  * loaded on `#settings` directly.
  */
 export function useView() {
-  const [state, setState] = useState<ViewState>(() => parseHash(window.location.hash))
+  const [state, setState] = useState<ViewState>(() => {
+    const initial = parseHash(window.location.hash)
+    if (initial.view === "settings") lastSection = initial.section
+    return initial
+  })
+  // Set while a close waits for its `history.back()` traversal to land.
+  const closing = useRef(false)
 
   useEffect(() => {
-    const onPop = () => setState(parseHash(window.location.hash))
+    const onPop = () => {
+      closing.current = false
+      const next = parseHash(window.location.hash)
+      if (next.view === "settings") lastSection = next.section
+      setState(next)
+    }
     window.addEventListener("popstate", onPop)
     return () => window.removeEventListener("popstate", onPop)
   }, [])
@@ -55,8 +66,10 @@ export function useView() {
   }, [])
 
   const closeSettings = useCallback(() => {
+    if (closing.current) return
     if ((window.history.state as { settings?: boolean } | null)?.settings) {
-      window.history.back() // popstate flips the view
+      closing.current = true
+      window.history.back() // popstate flips the view and clears `closing`
       return
     }
     window.history.replaceState(null, "", window.location.pathname + window.location.search)

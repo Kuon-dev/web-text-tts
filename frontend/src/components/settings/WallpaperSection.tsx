@@ -12,7 +12,8 @@ import {
 import { SECTION_DEFAULTS } from "@/lib/settings"
 import { cn } from "@/lib/utils"
 import { wallpaperUrl, type WallpaperInfo } from "@/lib/wallpaper"
-import { DropZone, NumberField, SectionHeader, Segmented, SettingRow, useFileDrop } from "./controls"
+import { DropZone, NumberField, SectionHeader, Segmented, SettingRow } from "./controls"
+import { useFileDrop } from "./useFileDrop"
 
 interface Props {
   prefs: ReadingPrefs

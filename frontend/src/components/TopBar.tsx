@@ -1,3 +1,4 @@
+import { useEffect, useRef } from "react"
 import { ClipboardPaste, Settings2 } from "lucide-react"
 import { m } from "motion/react"
 import { Button } from "@/components/ui/button"
@@ -13,6 +14,17 @@ interface Props {
 
 export function TopBar({ showClock, settingsOpen, onSettingsClick, onPasteClick }: Props) {
   const { playing } = usePlayer()
+  const settingsRef = useRef<HTMLButtonElement>(null)
+  const wasOpen = useRef(settingsOpen)
+  useEffect(() => {
+    // Only on the open → closed edge (never on mount), and only when the page's
+    // unmount dropped focus on the body — a click elsewhere keeps its target.
+    if (wasOpen.current && !settingsOpen && document.activeElement === document.body) {
+      settingsRef.current?.focus()
+    }
+    wasOpen.current = settingsOpen
+  }, [settingsOpen])
+
   return (
     <header className="sticky top-0 z-20 px-2 pt-2 sm:px-3 sm:pt-3">
       <m.div
@@ -38,6 +50,7 @@ export function TopBar({ showClock, settingsOpen, onSettingsClick, onPasteClick 
             </>
           )}
           <Button
+            ref={settingsRef}
             variant={settingsOpen ? "secondary" : "outline"}
             size="sm"
             onClick={onSettingsClick}

@@ -184,14 +184,5 @@ export function useReadingPrefs() {
     })
   }, [])
 
-  const reset = useCallback(() => {
-    try {
-      localStorage.removeItem(STORAGE_KEY)
-    } catch {
-      /* ignore */
-    }
-    setPrefs(DEFAULT_PREFS)
-  }, [])
-
-  return { prefs, update, reset }
+  return { prefs, update }
 }

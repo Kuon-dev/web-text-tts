@@ -1,4 +1,4 @@
-import { useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from "react"
+import { useRef, type KeyboardEvent, type ReactNode } from "react"
 import { Minus, Plus, RotateCcw, type LucideIcon } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
@@ -6,6 +6,7 @@ import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
 import { formatValue, rovingNext, stepValue } from "@/lib/settings"
 import { cn } from "@/lib/utils"
+import { useFileDrop } from "./useFileDrop"
 
 export function SectionHeader({ title, description, onReset }: { title: string; description: string; onReset?: () => void }) {
   return (
@@ -42,9 +43,13 @@ export function SettingRow({
   return (
     <div className={cn(inline ? "flex items-center justify-between gap-6" : "space-y-2.5")}>
       <div className="space-y-1">
-        <Label htmlFor={htmlFor} className="text-sm font-medium">
-          {label}
-        </Label>
+        {htmlFor ? (
+          <Label htmlFor={htmlFor} className="text-sm font-medium">
+            {label}
+          </Label>
+        ) : (
+          <span className="block text-sm leading-none font-medium select-none">{label}</span>
+        )}
         {description && <p className="text-xs text-muted-foreground">{description}</p>}
       </div>
       {children}
@@ -170,25 +175,6 @@ export function NumberField({
       <Slider value={[value]} min={min} max={max} step={step} onValueChange={([v]) => onChange(v)} aria-label={label} />
     </div>
   )
-}
-
-/** Drag-and-drop file handling for any element: spread `dropProps` on it. */
-export function useFileDrop(onFile: (f: File) => void) {
-  const [dragging, setDragging] = useState(false)
-  const dropProps = {
-    onDragOver: (e: DragEvent<HTMLElement>) => {
-      e.preventDefault()
-      setDragging(true)
-    },
-    onDragLeave: () => setDragging(false),
-    onDrop: (e: DragEvent<HTMLElement>) => {
-      e.preventDefault()
-      setDragging(false)
-      const f = e.dataTransfer.files[0]
-      if (f) onFile(f)
-    },
-  }
-  return { dragging, dropProps }
 }
 
 /** Dashed click-or-drop target wrapping a hidden file input. */
