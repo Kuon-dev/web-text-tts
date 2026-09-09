@@ -102,6 +102,7 @@ export function WallpaperSection({ prefs, update, wallpaper, uploadWallpaper, re
                     <button
                       key={val}
                       type="button"
+                      disabled={prefs.wallpaperFit === "stretch"}
                       onClick={() => update({ wallpaperPos: val })}
                       title={val}
                       aria-label={`Align ${val}`}
