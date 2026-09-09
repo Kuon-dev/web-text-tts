@@ -1,8 +1,13 @@
+import contextlib
 import hashlib
+import http.server
 import struct
+import threading
+
+import pytest
 
 from chunker import chunk_text, doc_images
-from images import ImageStore, sniff
+from images import ImageError, ImageStore, sniff
 from tests.test_server import make_client
 
 
@@ -101,3 +106,92 @@ def test_doc_skips_missing_image_files(tmp_path):
     doc = client.post("/api/doc", json={"text": "Hi.\n[img:" + "b" * 40 + "]"}).json()
     assert doc["images"] == []
     assert [c["text"] for c in doc["chunks"]] == ["Hi."]
+
+
+# --- fetch(): bearer auth for a private image host -------------------------
+#
+# Chapter illustrations can live behind a token (the novel-scrape ingest
+# service serves /image/<sha256> that way). The token must reach that host and
+# ONLY that host: a chapter's other images come from untrusted sites, and
+# posting a bearer token to one of those would hand it over.
+
+class _ImgServer(http.server.BaseHTTPRequestHandler):
+    body = b""
+    token = None
+    seen: list = []
+
+    def do_GET(self):
+        cls = type(self)
+        cls.seen.append(self.headers.get("Authorization"))
+        if cls.token and self.headers.get("Authorization") != f"Bearer {cls.token}":
+            self.send_response(401)
+            self.end_headers()
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(cls.body)))
+        self.end_headers()
+        self.wfile.write(cls.body)
+
+    def log_message(self, *args):
+        pass
+
+
+@contextlib.contextmanager
+def image_server(body: bytes, token: str | None = None):
+    _ImgServer.body, _ImgServer.token, _ImgServer.seen = body, token, []
+    srv = http.server.HTTPServer(("127.0.0.1", 0), _ImgServer)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        yield srv.server_port
+    finally:
+        srv.shutdown()
+
+
+def test_fetch_sends_no_authorization_by_default(tmp_path):
+    data = png_bytes()
+    store = ImageStore(tmp_path / "images")
+    with image_server(data) as port:
+        assert store.fetch(f"http://127.0.0.1:{port}/image/x")["id"] == hashlib.sha1(data).hexdigest()
+    assert _ImgServer.seen == [None]
+
+
+def test_fetch_sends_the_bearer_token_to_an_allowlisted_host(tmp_path):
+    data = png_bytes()
+    with image_server(data, token="s3cret") as port:
+        store = ImageStore(tmp_path / "images", token="s3cret", token_hosts=[f"127.0.0.1:{port}"])
+        assert store.fetch(f"http://127.0.0.1:{port}/image/x")["id"] == hashlib.sha1(data).hexdigest()
+    assert _ImgServer.seen == ["Bearer s3cret"]
+
+
+def test_fetch_withholds_the_token_from_every_other_host(tmp_path):
+    data = png_bytes()
+    with image_server(data, token="s3cret") as port:
+        # Token is scoped to localhost:<port>; the same server reached as
+        # 127.0.0.1:<port> is a different host and must not receive it.
+        store = ImageStore(tmp_path / "images", token="s3cret", token_hosts=[f"localhost:{port}"])
+        with pytest.raises(ImageError):
+            store.fetch(f"http://127.0.0.1:{port}/image/x")
+    assert _ImgServer.seen == [None]
+
+
+def test_fetch_scopes_the_token_by_port_too(tmp_path):
+    data = png_bytes()
+    with image_server(data, token="s3cret") as port:
+        store = ImageStore(tmp_path / "images", token="s3cret", token_hosts=["127.0.0.1:9"])
+        with pytest.raises(ImageError):
+            store.fetch(f"http://127.0.0.1:{port}/image/x")
+    assert _ImgServer.seen == [None]
+
+
+def test_image_token_is_configured_from_the_environment(tmp_path, monkeypatch):
+    """The deployed server reads the private host's token out of its env."""
+    data = png_bytes()
+    with image_server(data, token="env-tok") as port:
+        monkeypatch.setenv("NOVEL_TTS_IMAGE_TOKEN", "env-tok")
+        monkeypatch.setenv("NOVEL_TTS_IMAGE_TOKEN_HOSTS", f"localhost:{port}, 127.0.0.1:{port}")
+        client, _ = make_client(tmp_path)
+        resp = client.post("/api/image/fetch", json={"url": f"http://127.0.0.1:{port}/image/x"})
+    assert resp.status_code == 200
+    assert resp.json()["id"] == hashlib.sha1(data).hexdigest()
+    assert _ImgServer.seen == ["Bearer env-tok"]

@@ -3,7 +3,9 @@ import hashlib
 import logging
 import struct
 import urllib.request
+from collections.abc import Iterable
 from pathlib import Path
+from urllib.parse import urlsplit
 
 log = logging.getLogger("novel-tts")
 
@@ -77,10 +79,16 @@ class ImageError(ValueError):
 class ImageStore:
     """Illustrations stored as images/<sha1-of-bytes>, format sniffed on read."""
 
-    def __init__(self, root: Path):
+    def __init__(self, root: Path, token: str | None = None, token_hosts: Iterable[str] = ()):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
         self._meta: dict[str, dict] = {}
+        # Bearer token for a private image host, and the exact "host:port"
+        # values it may be sent to. Scoped on purpose: the rest of a chapter's
+        # illustrations come from untrusted sites, and a token offered to one
+        # of those is a token given away.
+        self._token = token or None
+        self._token_hosts = {h.strip().lower() for h in token_hosts if h.strip()}
 
     def path(self, iid: str) -> Path:
         return self.root / iid
@@ -104,7 +112,10 @@ class ImageStore:
     def fetch(self, url: str) -> dict:
         if not url.startswith(("http://", "https://")):
             raise ImageError("only http(s) image URLs are supported")
-        req = urllib.request.Request(url, headers={"User-Agent": _UA, "Accept": "image/*,*/*"})
+        headers = {"User-Agent": _UA, "Accept": "image/*,*/*"}
+        if self._token and urlsplit(url).netloc.lower() in self._token_hosts:
+            headers["Authorization"] = f"Bearer {self._token}"
+        req = urllib.request.Request(url, headers=headers)
         try:
             with urllib.request.urlopen(req, timeout=FETCH_TIMEOUT) as resp:
                 data = resp.read(MAX_IMAGE_BYTES + 1)

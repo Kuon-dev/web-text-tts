@@ -22,6 +22,21 @@ Paste a chapter (button top right, or edit `novel.txt`), press Play.
 - Audio cache: `cache/` (2 GiB cap, auto-evicted). Switching engine, changing style
   instruction, or replacing a clone's reference clip regenerates that voice's
   cached audio. State: `state.json`.
+- Pasting a chapter keeps its illustrations — HTML `<img>` and markdown
+  `![alt](src)` alike are downloaded into `images/` and become `[img:<sha1>]`
+  lines — and filters anti-theft watermark sentences, with an undo on the toast.
+
+### Private image hosts
+
+If illustrations sit behind a bearer token, put it in `.env` next to `start.sh`
+(git-ignored, and excluded from deploys so an rsync can't clobber it):
+
+    NOVEL_TTS_IMAGE_TOKEN=<token>
+    NOVEL_TTS_IMAGE_TOKEN_HOSTS=localhost:8787,127.0.0.1:8787
+
+The token goes only to the `host:port` values listed there. That allowlist is the
+point: the rest of a chapter's images come from untrusted sites, and a token
+offered to one of those is a token given away.
 
 ## Qwen3-TTS extras
 

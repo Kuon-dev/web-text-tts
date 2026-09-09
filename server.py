@@ -83,7 +83,14 @@ class AppState:
         self.text = ""
         self.doc_id = ""
         self.chunks = []
-        self.images = ImageStore(data_dir / "images")
+        # A private image host (novel-scrape's /image/<sha256>) needs a bearer
+        # token; NOVEL_TTS_IMAGE_TOKEN_HOSTS lists the "host:port" values it
+        # may be sent to, so scraped third-party images never see it.
+        self.images = ImageStore(
+            data_dir / "images",
+            token=os.environ.get("NOVEL_TTS_IMAGE_TOKEN"),
+            token_hosts=os.environ.get("NOVEL_TTS_IMAGE_TOKEN_HOSTS", "").split(","),
+        )
         self.image_refs = []
         self.mtime = 0.0
         # dict(DEFAULT_STATE) is a shallow copy: nested containers (positions,
