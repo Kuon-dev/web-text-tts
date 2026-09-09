@@ -85,8 +85,13 @@ class KokoroEngine(TTSEngine):
         # kanji/kana would be espeak-mangled by the a/b voices; keep silencing
         return re.search(r"[A-Za-z0-9]", text) is not None
 
+    @staticmethod
+    def _pipeline_key(voice: str, device: str):
+        # one KPipeline per (lang_code, device); "af_heart" and "am_adam" share one
+        return (voice[0], device)
+
     def _pipeline(self, voice: str, device: str):
-        key = (voice[0], device)
+        key = self._pipeline_key(voice, device)
         if key not in self._pipelines:
             from kokoro import KPipeline
 
@@ -99,6 +104,9 @@ class KokoroEngine(TTSEngine):
                 pipe.g2p.fallback = RomajiFallback(pipe.g2p.fallback)
             self._pipelines[key] = pipe
         return self._pipelines[key]
+
+    def is_loaded(self, device, voice):
+        return self._pipeline_key(voice, device) in self._pipelines
 
     def prepare(self, device, voice):
         self._pipeline(voice, device)

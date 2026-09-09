@@ -88,9 +88,67 @@ def test_engine_unavailable_passes_through_unwrapped():
 def test_info_merges_engine_identity_with_policy():
     info = ToyEngine(FakePolicy()).info()
     assert info["engine"] == "toy" and info["label"] == "Toy"
-    assert info["mode"] == "auto" and info["cold"] is False
+    assert info["mode"] == "auto" and info["loading"] is False
 
 
 def test_device_modes_tuple():
     assert DEVICE_MODES == ("auto", "gpu", "cpu")
     assert TTSEngine.supported_modes == DEVICE_MODES
+
+
+class LoadingEngine(ToyEngine):
+    """Records what info()["loading"] says from inside prepare()."""
+
+    def __init__(self, policy, resident=False, fail_prepare=False):
+        super().__init__(policy)
+        self.resident = resident
+        self.fail_prepare = fail_prepare
+        self.prepares = 0
+        self.seen_loading = []
+
+    def is_loaded(self, device, voice):
+        return self.resident
+
+    def prepare(self, device, voice):
+        self.prepares += 1
+        self.seen_loading.append(self.info()["loading"])
+        if self.fail_prepare:
+            raise RuntimeError("weights missing")
+
+
+def test_loading_is_true_while_prepare_runs_and_false_after():
+    engine = LoadingEngine(FakePolicy())
+    engine.synthesize("Hello there.", "v1")
+    assert engine.seen_loading == [True]
+    assert engine.info()["loading"] is False
+
+
+def test_resident_weights_still_prepare_but_never_report_loading():
+    engine = LoadingEngine(FakePolicy(), resident=True)
+    engine.synthesize("Hello there.", "v1")
+    assert engine.prepares == 1          # prepare() stays unconditional
+    assert engine.seen_loading == [False]
+
+
+def test_loading_cleared_when_prepare_raises():
+    engine = LoadingEngine(FakePolicy(), fail_prepare=True)
+    with pytest.raises(RuntimeError):
+        engine.synthesize("Hello there.", "v1")
+    assert engine.info()["loading"] is False
+
+
+def test_batch_path_reports_loading_too():
+    class BatchEngine(LoadingEngine):
+        max_batch = 4
+
+    engine = BatchEngine(FakePolicy())
+    engine.synthesize_many(["One.", "Two."], "v1")
+    assert engine.seen_loading == [True]
+    assert engine.info()["loading"] is False
+
+
+def test_engine_that_never_says_it_loads_defaults_to_not_loading():
+    engine = ToyEngine(FakePolicy())
+    assert engine.is_loaded("cpu", "v1") is True
+    engine.synthesize("Hello there.", "v1")
+    assert engine.info()["loading"] is False

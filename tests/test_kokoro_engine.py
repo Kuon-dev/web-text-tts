@@ -83,3 +83,13 @@ def test_prepare_builds_the_pipeline_so_load_is_not_timed(monkeypatch):
 
     engine.prepare("cuda", "af_bella")        # same lang+device: reuse, no rebuild
     assert built == [("a", "cuda")]
+
+
+def test_is_loaded_tracks_the_language_device_pipeline_cache():
+    e = make_engine()
+    assert not e.is_loaded("cpu", "af_heart")
+    e._pipelines[("a", "cpu")] = object()
+    assert e.is_loaded("cpu", "af_heart")
+    assert e.is_loaded("cpu", "am_adam")      # same lang_code, same pipeline
+    assert not e.is_loaded("cuda", "af_heart")   # per-device
+    assert not e.is_loaded("cpu", "bf_emma")     # per-language

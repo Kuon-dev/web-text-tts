@@ -88,7 +88,7 @@ class FakeManager:
         self.instructs.append(text)
 
     def info(self):
-        return {"engine": self.engine_id, "label": "x", "cold": False,
+        return {"engine": self.engine_id, "label": "x", "loading": False,
                 "mode": "auto", "active": "gpu", "gpu_available": True}
 
 
@@ -351,7 +351,7 @@ def test_status_includes_engine_info(tmp_path):
                      engines=lambda: FakeManager.CATALOG)
     client = TestClient(app)
     body = client.get("/api/status").json()
-    assert body["engine"] == {"engine": "kokoro", "label": "x", "cold": False,
+    assert body["engine"] == {"engine": "kokoro", "label": "x", "loading": False,
                               "mode": "auto", "active": "gpu", "gpu_available": True,
                               "speed": 0.0}
     assert body["blocked"] is None

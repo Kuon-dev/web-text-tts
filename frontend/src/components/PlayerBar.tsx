@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import type { MouseEvent } from "react"
-import { Pause, Play, SkipBack, SkipForward, Volume1, Volume2, VolumeX } from "lucide-react"
+import { Loader2, Pause, Play, SkipBack, SkipForward, Volume1, Volume2, VolumeX } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { m } from "motion/react"
 import type { Transition } from "motion/react"
@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Slider } from "@/components/ui/slider"
-import { EngineModeList, activeEngineIcon } from "@/components/EngineModePicker"
+import { EngineModeList, activeEngineIcon, useEngineLabel } from "@/components/EngineModePicker"
 import { VoiceCombobox } from "@/components/VoiceCombobox"
 import type { EngineInfo } from "@/lib/api"
 import { player, usePlayer } from "@/lib/player"
@@ -37,7 +37,7 @@ function IconStack<K extends string>({ active, icons }: { active: K; icons: Reco
   )
 }
 
-function EngineMenu({ engine }: { engine: EngineInfo | null }) {
+function EngineMenu({ engine, busy }: { engine: EngineInfo | null; busy: boolean }) {
   const active = engine?.active ?? "gpu"
   const ActiveIcon = activeEngineIcon(engine)
 
@@ -51,7 +51,11 @@ function EngineMenu({ engine }: { engine: EngineInfo | null }) {
           aria-label="Voice engine"
           className="font-normal"
         >
-          <ActiveIcon className="size-3.5 text-muted-foreground" aria-hidden />
+          {busy ? (
+            <Loader2 className="size-3.5 animate-spin text-muted-foreground" aria-hidden />
+          ) : (
+            <ActiveIcon className="size-3.5 text-muted-foreground" aria-hidden />
+          )}
           <span className="font-mono text-xs max-sm:hidden">{active.toUpperCase()}</span>
           {engine != null && engine.speed > 0 && (
             <span className="font-mono text-[10px] tabular-nums text-muted-foreground max-md:hidden">
@@ -96,14 +100,23 @@ function TimeDisplay({ playing, hasChunks }: { playing: boolean; hasChunks: bool
 }
 
 export function PlayerBar() {
-  const { chunks, idx, playing, speed, volume, pauseMs, muted, voice, voices, engine, ready, failed, blocked } = usePlayer()
+  const { chunks, idx, playing, speed, volume, pauseMs, muted, voice, voices, engine, switchingTo, blocked } = usePlayer()
   const n = chunks.length
   const pct = n ? ((idx + 1) / n) * 100 : 0
   const effectiveVolume = muted ? 0 : volume
   const volState = effectiveVolume === 0 ? "muted" : effectiveVolume < 0.5 ? "low" : "high"
-  const currentChunk = n ? chunks[idx] : undefined
-  const waiting = playing && !!currentChunk && !ready.has(currentChunk.id) && !failed.has(currentChunk.id)
-  const statusLine = blocked ? "paused — GPU busy (Qwen3 has no CPU mode)" : engine?.cold && waiting ? "loading model…" : null
+  const switchingLabel = useEngineLabel(switchingTo)
+  const engineBusy = switchingTo !== null || !!engine?.loading
+  // Deliberately not gated on playback: an engine is nearly always switched
+  // from the settings page with the player paused, and that is precisely the
+  // switch that used to happen in total silence.
+  const statusLine = switchingTo
+    ? `switching to ${switchingLabel}…`
+    : blocked
+      ? "paused — GPU busy (Qwen3 has no CPU mode)"
+      : engine?.loading
+        ? `loading ${engine.label}…`
+        : null
 
   const scrub = (e: MouseEvent<HTMLDivElement>) => {
     if (!n) return
@@ -148,7 +161,7 @@ export function PlayerBar() {
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-3 py-2">
         <div className="flex items-center gap-2">
           <VoiceCombobox voice={voice} voices={voices} className="max-sm:w-28" />
-          <EngineMenu engine={engine} />
+          <EngineMenu engine={engine} busy={engineBusy} />
         </div>
 
         <div className="flex items-center gap-1.5">

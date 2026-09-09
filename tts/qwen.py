@@ -115,9 +115,6 @@ class Qwen3Engine(TTSEngine):
             return "base-1.7b\x00" + self._clones.fingerprint(voice_id)
         return "custom-1.7b\x00" + hashlib.sha1(self._instruct.encode()).hexdigest()
 
-    def info(self) -> dict:
-        return {**super().info(), "cold": self._model is None}
-
     def _load(self, variant: str):
         if self._variant == variant:
             return self._model
@@ -141,6 +138,9 @@ class Qwen3Engine(TTSEngine):
         if max_seconds is None:
             return None
         return int(max_seconds * QWEN_FRAMES_PER_SECOND) + 1
+
+    def is_loaded(self, device: str, voice: str) -> bool:
+        return self._variant == self._variant_for(voice)
 
     def prepare(self, device: str, voice: str) -> None:
         self._load(self._variant_for(voice))

@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react"
-import { AudioLines, Cpu, Gpu, Sparkles } from "lucide-react"
+import { AudioLines, Cpu, Gpu, Loader2, Sparkles } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { toast } from "sonner"
 import { Label } from "@/components/ui/label"
 import { getEngines, type DeviceMode, type EngineEntry, type EngineInfo } from "@/lib/api"
-import { player } from "@/lib/player"
+import { player, usePlayer } from "@/lib/player"
 import { cn } from "@/lib/utils"
 
 export const ENGINE_OPTIONS: { key: DeviceMode; label: string; Icon: LucideIcon; desc: string }[] = [
@@ -43,6 +43,25 @@ function useEngineCatalog(): EngineEntry[] {
   return engines
 }
 
+/** An engine's display label from the shared catalog, falling back to its id
+ *  until that fetch lands. */
+export function useEngineLabel(id: string | null): string {
+  const engines = useEngineCatalog()
+  if (!id) return ""
+  return engines.find((e) => e.id === id)?.label ?? id
+}
+
+/** What the card under the engine's name should say about its progress.
+ *  The two waits are separate and both long enough to need saying: the switch
+ *  request blocks on EngineManager's lock behind the chunk in flight, and the
+ *  weights then load lazily in the worker (tens of seconds for Qwen3 off disk,
+ *  minutes on a first download) long after that request has returned. */
+function engineProgress(id: string, current: string, switchingTo: string | null, engineInfo: EngineInfo | null) {
+  if (switchingTo === id) return "switching…"
+  if (id === current && engineInfo?.loading) return "loading model…"
+  return null
+}
+
 /** TTS engine cards (Kokoro / Qwen3, ...) — unavailable engines show their reason. */
 export function EngineList({
   engines,
@@ -53,8 +72,13 @@ export function EngineList({
   current: string
   engineInfo: EngineInfo | null
 }) {
+  const { switchingTo } = usePlayer()
+  // Until the request lands, `current` is still the old engine — so the card
+  // the user clicked has to read as chosen on its own, or the click looks lost.
+  const chosen = switchingTo ?? current
+
   const select = async (id: string) => {
-    if (id === current) return
+    if (id === current || switchingTo !== null) return
     try {
       await player.setEngine(id)
     } catch (err) {
@@ -65,30 +89,41 @@ export function EngineList({
   return (
     <div className="space-y-1">
       <Label className="text-xs text-muted-foreground">Engine</Label>
-      {engines.map((e) => (
-        <button
-          key={e.id}
-          type="button"
-          disabled={!e.available}
-          onClick={() => void select(e.id)}
-          aria-pressed={current === e.id}
-          className={cn(
-            "flex w-full cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50",
-            current === e.id && "bg-secondary",
-          )}
-        >
-          <AudioLines className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
-          <span className="min-w-0">
-            <span className="block text-sm font-medium">
-              {e.label}
-              {current === e.id && engineInfo?.cold ? " · loading model…" : ""}
+      {engines.map((e) => {
+        const progress = engineProgress(e.id, current, switchingTo, engineInfo)
+        return (
+          <button
+            key={e.id}
+            type="button"
+            disabled={!e.available || switchingTo !== null}
+            onClick={() => void select(e.id)}
+            aria-pressed={chosen === e.id}
+            aria-busy={progress !== null}
+            className={cn(
+              "flex w-full cursor-pointer items-start gap-2.5 rounded-md px-2.5 py-2 text-left transition-colors hover:bg-accent disabled:cursor-not-allowed",
+              // A switch in flight dims the others, never the one being switched to
+              switchingTo !== null && chosen !== e.id && "opacity-50",
+              !e.available && "opacity-50",
+              chosen === e.id && "bg-secondary",
+            )}
+          >
+            {progress ? (
+              <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground" aria-hidden />
+            ) : (
+              <AudioLines className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
+            )}
+            <span className="min-w-0">
+              <span className="block text-sm font-medium">
+                {e.label}
+                {progress ? ` · ${progress}` : ""}
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                {e.available ? (e.id === "qwen3" ? "Japanese, cloning, style — GPU only" : "Fast, 16 voices, CPU fallback") : e.reason}
+              </span>
             </span>
-            <span className="block text-xs text-muted-foreground">
-              {e.available ? (e.id === "qwen3" ? "Japanese, cloning, style — GPU only" : "Fast, 16 voices, CPU fallback") : e.reason}
-            </span>
-          </span>
-        </button>
-      ))}
+          </button>
+        )
+      })}
     </div>
   )
 }

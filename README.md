@@ -15,6 +15,10 @@ Paste a chapter (button top right, or edit `novel.txt`), press Play.
   under GPU contention) or **Qwen3-TTS 1.7B** (9 preset speakers incl. native
   Japanese, GPU-only; pauses generation when GPU is busy — playback waits, UI
   explains why). Switching engine regenerates cached audio; per-engine voice memory.
+  A switch reports both of its waits — the swap itself (which queues behind the
+  chunk being generated) and the model load that follows it, tens of seconds off
+  disk and minutes on a first download — on the engine card, in the player bar,
+  and with a toast when the new engine is ready.
 - Settings (top right, also `#settings` in the URL): a page in place of the reader
   with a live preview — theme / palette / accent, reading font (18 faces, listed
   in their own face), size, line & paragraph spacing, text width, justify,

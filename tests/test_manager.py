@@ -41,7 +41,7 @@ class StubEngine(TTSEngine):
         self.instructs.append(text)
 
     def info(self):
-        return {"engine": self.id, "label": self.label, "cold": False,
+        return {"engine": self.id, "label": self.label, "loading": False,
                 "mode": "auto", "active": "gpu", "gpu_available": True}
 
     def unload(self):

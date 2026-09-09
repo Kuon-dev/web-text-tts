@@ -31,6 +31,8 @@ export interface PlayerSnapshot {
   voices: Voice[]
   instruct: string
   engine: EngineInfo | null
+  /** engine id whose POST /api/state is still in flight, else null */
+  switchingTo: string | null
   blocked: string | null
 }
 
@@ -64,6 +66,10 @@ class PlayerEngine {
   private saveTimer: ReturnType<typeof setTimeout> | undefined
   private voices: Voice[] = []
   private engine: EngineInfo | null = null
+  private switchingTo: string | null = null
+  // Armed by setEngine, disarmed by the poll that sees the switch's load end.
+  private pendingEngine: { id: string; sawLoading: boolean } | null = null
+  private engineReadyListeners = new Set<(label: string) => void>()
   private blocked: string | null = null
   private started = false
   private listeners = new Set<() => void>()
@@ -81,6 +87,16 @@ class PlayerEngine {
   }
 
   getSnapshot = () => this.snap
+
+  /** Fires once with the engine's label when a switch's model load finishes.
+   *  Separate from subscribe(): "the wait is over" is an event, and a 40s load
+   *  usually ends long after the user has left the settings page. */
+  onEngineReady = (fn: (label: string) => void): (() => void) => {
+    this.engineReadyListeners.add(fn)
+    return () => {
+      this.engineReadyListeners.delete(fn)
+    }
+  }
 
   private emit() {
     this.snap = this.buildSnapshot()
@@ -104,6 +120,7 @@ class PlayerEngine {
       voices: this.voices,
       instruct: this.doc.instruct ?? "",
       engine: this.engine,
+      switchingTo: this.switchingTo,
       blocked: this.blocked,
     }
   }
@@ -155,7 +172,10 @@ class PlayerEngine {
   private async pollStatus() {
     try {
       const s = await api<Status>("/api/status")
-      if (s.engine) this.engine = s.engine
+      if (s.engine) {
+        this.engine = s.engine
+        this.trackEngineLoad(s.engine)
+      }
       this.blocked = s.blocked
       if (s.doc_id !== this.doc.doc_id) {
         // An agent appending a page mints a new doc_id, but the chunk being
@@ -365,24 +385,51 @@ class PlayerEngine {
     }
   }
 
+  /** One-shot "the engine you switched to has finished loading".
+   *
+   *  Only a switch that actually paid a load gets announced: when the weights
+   *  were already resident the switch itself was the whole wait, and the card
+   *  already showed it. Staying armed until a load appears is deliberate — a
+   *  switch made with no chapter open loads nothing until the next play, and
+   *  that load is exactly the wait worth announcing. */
+  private trackEngineLoad(info: EngineInfo) {
+    const pending = this.pendingEngine
+    if (!pending) return
+    if (info.engine !== pending.id) {
+      this.pendingEngine = null       // switched again; that switch owns the signal now
+      return
+    }
+    if (info.loading) {
+      pending.sawLoading = true
+    } else if (pending.sawLoading) {
+      this.pendingEngine = null
+      this.engineReadyListeners.forEach((fn) => fn(info.label))
+    }
+  }
+
   /** Resolves true on success; throws (with the server's `detail` message when the
    *  rejection was a 400, via api()) on failure — the request is atomic, so nothing
-   *  local needs rolling back. */
+   *  local needs rolling back. Resolves false without acting if a switch is already
+   *  in flight: POST /api/state waits on EngineManager's lock behind the chunk in
+   *  flight, which is long enough for an impatient second click. */
   async setEngine(id: string): Promise<boolean> {
+    if (this.switchingTo !== null) return false
+    this.switchingTo = id
+    this.emit()
     try {
       const r = await api<{ rechunked: boolean }>("/api/state", { engine: id })
       if (this.engine) {
         // optimistic; the 2s status poll corrects label/gpu_available/mode/speed shortly
-        this.engine = { ...this.engine, engine: id, cold: true }
+        this.engine = { ...this.engine, engine: id }
       }
-      this.emit()
       if (r.rechunked) await this.reconcileDoc()
       await this.refreshVoices()  // the new engine has its own voice set
-      this.emit()
+      // The weights load lazily in the worker, well after this resolves.
+      this.pendingEngine = { id, sawLoading: false }
       return true
-    } catch (err) {
+    } finally {
+      this.switchingTo = null
       this.emit()
-      throw err
     }
   }
 

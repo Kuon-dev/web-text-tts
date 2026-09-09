@@ -47,7 +47,8 @@ export interface EngineInfo {
   mode: DeviceMode
   active: "gpu" | "cpu"
   gpu_available: boolean
-  cold: boolean
+  /** weights are being loaded right now (tens of seconds; minutes on a first download) */
+  loading: boolean
   speed: number
 }
 

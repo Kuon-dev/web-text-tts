@@ -257,3 +257,128 @@ it("setPause commits pause_ms to the server", async () => {
   expect(posts.length).toBe(1)
   expect(JSON.parse(posts[0][1].body)).toEqual({ pause_ms: 750 })
 })
+
+/** Boots the player with a controllable /api/state and /api/status.
+ *  `state.resolve` releases the in-flight engine switch; `engineInfo` is what
+ *  the next status poll reports. */
+async function bootForEngineSwitch() {
+  vi.resetModules()
+  vi.useFakeTimers()
+  vi.stubGlobal("Audio", FakeAudio)
+  let engineInfo = { engine: "kokoro", label: "Kokoro-82M", mode: "auto", active: "gpu", gpu_available: true, loading: false, speed: 0 }
+  let release: ((v: unknown) => void) | null = null
+  const fetchMock = vi.fn().mockImplementation(async (...args) => {
+    const url = String(args[0])
+    if (url.includes("/api/voices")) return { ok: true, json: async () => ({ voices: [], current: "" }) }
+    if (url.includes("/api/doc")) {
+      return { ok: true, json: async () => ({ doc_id: "d1", chunks: [{ id: "c1", text: "One.", para: 0 }], position: 0, voice: "v1", speed: 1, volume: 1 }) }
+    }
+    if (url.includes("/api/status")) {
+      return { ok: true, json: async () => ({ doc_id: "d1", ready: [], failed: [], blocked: null, engine: engineInfo }) }
+    }
+    if (url.includes("/api/state")) {
+      await new Promise((r) => (release = r))
+      return { ok: true, json: async () => ({ ok: true, rechunked: false }) }
+    }
+    return { ok: true, json: async () => ({}) }
+  })
+  vi.stubGlobal("fetch", fetchMock)
+  const { player } = await import("./player")
+  player.start()
+  await vi.advanceTimersByTimeAsync(0)
+  return {
+    player,
+    fetchMock,
+    finishSwitch: async () => {
+      release?.(undefined)
+      await vi.advanceTimersByTimeAsync(0)
+    },
+    poll: async (info: Partial<typeof engineInfo>) => {
+      engineInfo = { ...engineInfo, ...info }
+      await vi.advanceTimersByTimeAsync(2000)
+    },
+  }
+}
+
+it("names the engine being switched to while the request is still in flight", async () => {
+  const { player, finishSwitch } = await bootForEngineSwitch()
+
+  const done = player.setEngine("qwen3")
+  await vi.advanceTimersByTimeAsync(0)
+  // POST /api/state blocks behind EngineManager's lock for as long as the
+  // chunk in flight takes — the UI has to say something for that whole window.
+  expect(player.getSnapshot().switchingTo).toBe("qwen3")
+
+  await finishSwitch()
+  await done
+  expect(player.getSnapshot().switchingTo).toBe(null)
+})
+
+it("clears the switching state when the engine switch is rejected", async () => {
+  vi.resetModules()
+  vi.useFakeTimers()
+  vi.stubGlobal("Audio", FakeAudio)
+  vi.stubGlobal("fetch", vi.fn().mockImplementation(async (...args) => {
+    const url = String(args[0])
+    if (url.includes("/api/voices")) return { ok: true, json: async () => ({ voices: [], current: "" }) }
+    if (url.includes("/api/doc")) return { ok: true, json: async () => ({ doc_id: "d1", chunks: [], position: 0, voice: "v1", speed: 1, volume: 1 }) }
+    if (url.includes("/api/status")) return { ok: true, json: async () => ({ doc_id: "d1", ready: [], failed: [], blocked: null }) }
+    return { ok: false, status: 400, json: async () => ({ detail: "no GPU" }) }
+  }))
+  const { player } = await import("./player")
+  player.start()
+  await vi.advanceTimersByTimeAsync(0)
+
+  await expect(player.setEngine("qwen3")).rejects.toThrow("no GPU")
+  expect(player.getSnapshot().switchingTo).toBe(null)
+})
+
+it("ignores a second engine switch while one is still in flight", async () => {
+  const { player, fetchMock, finishSwitch } = await bootForEngineSwitch()
+
+  const first = player.setEngine("qwen3")
+  await vi.advanceTimersByTimeAsync(0)
+  await player.setEngine("qwen3")     // impatient second click on the same card
+  await player.setEngine("kokoro")    // ...or on a different one
+
+  const posts = fetchMock.mock.calls.filter((c) => String(c[0]).includes("/api/state"))
+  expect(posts.length).toBe(1)
+  await finishSwitch()
+  await first
+})
+
+it("announces the new engine only once its weights have finished loading", async () => {
+  const { player, finishSwitch, poll } = await bootForEngineSwitch()
+  const ready: string[] = []
+  player.onEngineReady((label) => ready.push(label))
+
+  const done = player.setEngine("qwen3")
+  await finishSwitch()
+  await done
+
+  await poll({ engine: "qwen3", label: "Qwen3-TTS 1.7B", loading: true })
+  expect(ready).toEqual([])          // still loading — nothing to announce yet
+
+  await poll({ loading: false })
+  expect(ready).toEqual(["Qwen3-TTS 1.7B"])
+
+  await poll({ loading: false })
+  expect(ready).toEqual(["Qwen3-TTS 1.7B"])   // one-shot, not once per poll
+})
+
+it("stays quiet when the new engine's weights were already resident", async () => {
+  const { player, finishSwitch, poll } = await bootForEngineSwitch()
+  const ready: string[] = []
+  player.onEngineReady((label) => ready.push(label))
+
+  const done = player.setEngine("qwen3")
+  await finishSwitch()
+  await done
+
+  // Never reports loading: the switch itself was the whole wait, and the
+  // card already showed it. A "ready" toast here would be noise — and after
+  // a switch with no load, a promise the next play may not keep.
+  await poll({ engine: "qwen3", label: "Qwen3-TTS 1.7B", loading: false })
+  await poll({ loading: false })
+  expect(ready).toEqual([])
+})

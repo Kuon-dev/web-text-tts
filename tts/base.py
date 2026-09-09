@@ -57,12 +57,15 @@ class TTSEngine(ABC):
 
     def __init__(self, policy):
         self.policy = policy
+        # Flipped in the worker thread by _prepare, read from the status
+        # thread by info(). A bare bool rebind is atomic under the GIL.
+        self._loading = False
 
     def synthesize(self, text: str, voice: str, urgent: bool = False) -> np.ndarray:
         if not self.is_speakable(text):
             return self._silence()
         device = self.policy.pick(urgent)
-        self.prepare(device, voice)
+        self._prepare(device, voice)
         start = time.monotonic()
         try:
             audio = self._call_generate(text, voice, device)
@@ -88,6 +91,31 @@ class TTSEngine(ABC):
         so every retry paid the load again.
         """
 
+    def is_loaded(self, device: str, voice: str) -> bool:
+        """Are the weights `prepare` would build already resident?
+
+        Only drives the `loading` flag /api/status reports - it never gates
+        prepare(), which stays unconditional and idempotent. The default says
+        "yes", so an engine that does not override this simply never claims to
+        be loading rather than claiming to load forever.
+        """
+        return True
+
+    def _prepare(self, device: str, voice: str) -> None:
+        """prepare() with `loading` raised around a real load.
+
+        The load is the long wait a user actually sees on an engine switch
+        (tens of seconds for Qwen3 off disk, minutes on a first download), and
+        it happens here in the worker - well after POST /api/state returned -
+        so the UI has nothing else to key on.
+        """
+        if not self.is_loaded(device, voice):
+            self._loading = True
+        try:
+            self.prepare(device, voice)
+        finally:
+            self._loading = False
+
     def budget_seconds(self, text: str) -> float | None:
         """Seconds of audio `text` may produce before it counts as a runaway."""
         if self.overrun_factor is None:
@@ -112,7 +140,7 @@ class TTSEngine(ABC):
         if not batch:
             return out
         device = self.policy.pick(urgent)
-        self.prepare(device, voice)
+        self._prepare(device, voice)
         start = time.monotonic()
         retries = [self.max_runaway_retries]
         try:
@@ -204,7 +232,7 @@ class TTSEngine(ABC):
         self.policy.set_mode(mode)
 
     def info(self) -> dict:
-        return {"engine": self.id, "label": self.label, "cold": False,
+        return {"engine": self.id, "label": self.label, "loading": self._loading,
                 **self.policy.info()}
 
     def unload(self) -> None:

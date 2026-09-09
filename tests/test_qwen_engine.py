@@ -48,7 +48,7 @@ def test_identity(fake_qwen, tmp_path):
     assert (e.id, e.label) == ("qwen3", "Qwen3-TTS 1.7B")
     assert e.supported_modes == ("auto", "gpu")
     assert e.default_voice == "Ryan"
-    assert e.info()["cold"] is True                      # nothing loaded yet
+    assert e.info()["loading"] is False                   # idle, not loading
 
 
 def test_preset_synthesis_loads_custom_variant_once(fake_qwen, tmp_path):
@@ -58,7 +58,7 @@ def test_preset_synthesis_loads_custom_variant_once(fake_qwen, tmp_path):
     e.synthesize("Another line.", "Ryan")
     assert fake_qwen["loaded"] == ["Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"]
     assert fake_qwen["custom"][0] == ("Hello there, traveler.", "English", "Ryan", "read it calmly")
-    assert e.info()["cold"] is False
+    assert e.info()["loading"] is False
 
 
 def test_clone_synthesis_swaps_to_base_variant(fake_qwen, tmp_path):
@@ -130,7 +130,7 @@ def test_prepare_loads_the_variant_before_the_clock_starts(fake_qwen, tmp_path):
     e.prepare("cuda", "Ryan")
 
     assert fake_qwen["loaded"] == ["Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"]
-    assert e.info()["cold"] is False
+    assert e.info()["loading"] is False
 
 
 def test_qwen_declares_a_budget_and_cap():
@@ -170,3 +170,30 @@ def test_clone_calls_are_capped_per_item(fake_qwen, tmp_path):
     # clone path is one model call per item, each with its own budget:
     # 30 chars -> 1.6 * 2s + 2s = 5.2s -> int(5.2 * 12.5) + 1 = 66 frames
     assert fake_qwen["caps"] == [66, 226]
+
+
+def test_is_loaded_tracks_the_resident_variant(fake_qwen, tmp_path):
+    import tests.test_voices as tv
+    e = make_engine(fake_qwen, tmp_path)
+    clone = e._clones.add(tv.clip_bytes(), name="Narrator A")
+
+    assert not e.is_loaded("cuda", "Ryan")          # nothing resident yet
+    e.prepare("cuda", "Ryan")
+    assert e.is_loaded("cuda", "Ryan")
+    assert e.is_loaded("cuda", "Ethan")             # same CustomVoice variant
+    assert not e.is_loaded("cuda", clone.id)        # clones need the Base variant
+
+
+def test_switching_variant_reports_loading_again(fake_qwen, tmp_path):
+    import tests.test_voices as tv
+    e = make_engine(fake_qwen, tmp_path)
+    clone = e._clones.add(tv.clip_bytes(), name="Narrator A")
+    e.prepare("cuda", "Ryan")
+
+    seen = []
+    original = e._load
+    e._load = lambda variant: (seen.append(e.info()["loading"]), original(variant))[1]
+    e.synthesize("Cloned line.", clone.id)
+
+    assert seen[0] is True                          # base variant is a real load
+    assert e.info()["loading"] is False

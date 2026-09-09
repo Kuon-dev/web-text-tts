@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { LazyMotion, MotionConfig, domAnimation } from "motion/react"
-import { Toaster } from "sonner"
+import { Toaster, toast } from "sonner"
 import { PasteDialog } from "@/components/PasteDialog"
 import { PlayerBar } from "@/components/PlayerBar"
 import { Reader } from "@/components/Reader"
@@ -23,6 +23,11 @@ export default function App() {
   useEffect(() => {
     player.start()
   }, [])
+
+  // A model load runs tens of seconds (minutes on a first download) and usually
+  // ends long after the user has closed settings and gone back to reading, so
+  // the end of the wait is announced rather than only shown in the player bar.
+  useEffect(() => player.onEngineReady((label) => toast.success(`${label} ready`)), [])
 
   // UI scale: rem-based chrome (bars, dialogs, controls) scales with the root
   // font-size; reading text is px-based and stays under its own Size pref.
