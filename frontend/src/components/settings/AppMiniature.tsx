@@ -60,7 +60,7 @@ export function AppMiniature({ prefs, theme, dark, wallpaper, caption }: Props) 
         </div>
         {/* reader tile — the focused window while the voice reads */}
         <div className="absolute inset-x-[16%] top-[17%] bottom-[19%] rounded-[4px] border border-(--focus-border) bg-card/85 px-[5%] py-[5%] shadow-[0_0_18px_-4px_var(--focus-glow)]">
-          <div className="flex flex-col gap-[6%]">
+          <div className="flex h-full flex-col justify-center space-y-[4%]">
             {LINES.map((w, i) =>
               w === null ? (
                 <span

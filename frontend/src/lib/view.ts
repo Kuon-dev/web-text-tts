@@ -47,7 +47,10 @@ export function useView() {
   const setSection = useCallback((section: Section) => {
     lastSection = section
     const next: ViewState = { view: "settings", section }
-    window.history.replaceState({ settings: true }, "", hashFor(next))
+    // Keep whatever state the entry already had: stamping `{settings: true}`
+    // here would make closeSettings believe it pushed an entry it did not,
+    // and `history.back()` from a directly-loaded #settings URL leaves the app.
+    window.history.replaceState(window.history.state, "", hashFor(next))
     setState(next)
   }, [])
 
