@@ -92,19 +92,30 @@ it("flushPosition does not POST while no document has loaded yet", async () => {
   expect(posts.length).toBe(0)
 })
 
-/** Fake <audio> that records its "ended" listener so a test can fire it. */
+/** Fake <audio> that records its listeners so a test can fire them. */
 class EndableAudio extends FakeAudio {
   static instances: EndableAudio[] = []
   listeners: Record<string, () => void> = {}
+  paused = 0
   constructor() {
     super()
     EndableAudio.instances.push(this)
   }
+  plays = 0
   addEventListener(name: string, fn: () => void) {
     this.listeners[name] = fn
   }
+  pause() {
+    this.paused += 1
+  }
+  play() {
+    this.plays += 1
+    return Promise.resolve()
+  }
 }
 
+/** Loads a two-sentence doc, starts playback, and hands back both elements:
+ *  the player owns one <audio> for sentences and one for the silent gap clip. */
 async function loadTwoChunkDoc(pause_ms: number) {
   vi.resetModules()
   vi.useFakeTimers()
@@ -139,70 +150,99 @@ async function loadTwoChunkDoc(pause_ms: number) {
   const { player } = await import("./player")
   player.start()
   await vi.advanceTimersByTimeAsync(0)
-  const audio = EndableAudio.instances[0]
+  const [audio, gap] = EndableAudio.instances
   player.togglePlay()
   await vi.advanceTimersByTimeAsync(0)
   expect(audio.src).toContain("c1")
-  return { player, audio }
+  return { player, audio, gap }
 }
 
-it("waits pause_ms after a chunk ends before starting the next one", async () => {
-  const { player, audio } = await loadTwoChunkDoc(500)
+it("primes the silent clip on the play gesture, so a strict browser allows it later", async () => {
+  // Safari and iOS only let an element play if it was started by a gesture at
+  // least once; the gap element's own plays all happen later, unprompted.
+  const { gap } = await loadTwoChunkDoc(500)
+  expect(gap.plays).toBe(1)
+  expect(gap.src).toContain("data:audio/wav")
+  expect(gap.paused).toBeGreaterThan(0) // primed, then immediately silenced
+})
+
+it("times the pause with a silent clip, not a timer that a hidden tab throttles", async () => {
+  const { player, audio, gap } = await loadTwoChunkDoc(500)
   expect(player.getSnapshot().pauseMs).toBe(500)
 
   audio.listeners.ended()
   await vi.advanceTimersByTimeAsync(0)
-  // The reader highlight moves to the next sentence at once, but audio waits.
+  // The reader highlight moves on at once; the next sentence waits on the clip.
   expect(player.getSnapshot().idx).toBe(1)
+  expect(gap.src).toContain("data:audio/wav")
   expect(audio.src).toContain("c1")
 
-  await vi.advanceTimersByTimeAsync(499)
+  // No amount of wall-clock time may start it — only the clip ending does.
+  await vi.advanceTimersByTimeAsync(60_000)
   expect(audio.src).toContain("c1")
-  await vi.advanceTimersByTimeAsync(1)
+
+  gap.listeners.ended()
+  await vi.advanceTimersByTimeAsync(0)
   expect(audio.src).toContain("c2")
 })
 
 it("scales the pause by playback speed", async () => {
-  const { player, audio } = await loadTwoChunkDoc(1000)
+  const { player, audio, gap } = await loadTwoChunkDoc(1000)
   player.setSpeed(2)
 
   audio.listeners.ended()
-  await vi.advanceTimersByTimeAsync(499)
-  expect(audio.src).toContain("c1")
-  await vi.advanceTimersByTimeAsync(1)
-  expect(audio.src).toContain("c2")
+  await vi.advanceTimersByTimeAsync(0)
+  // A 1000ms clip played at 2x lasts 500ms, so a faster narrator breathes faster.
+  expect(gap.playbackRate).toBe(2)
 })
 
-it("starts the next chunk immediately when pause_ms is 0", async () => {
-  const { audio } = await loadTwoChunkDoc(0)
+it("starts the next sentence immediately when the pause is 0", async () => {
+  const { audio, gap } = await loadTwoChunkDoc(0)
+  const primed = gap.plays
   audio.listeners.ended()
   await vi.advanceTimersByTimeAsync(0)
   expect(audio.src).toContain("c2")
+  expect(gap.plays).toBe(primed) // no clip beyond the one-off priming
 })
 
-it("pausing during the gap cancels the pending chunk start", async () => {
-  const { player, audio } = await loadTwoChunkDoc(500)
+it("pausing during the gap stops the clip and cancels the pending sentence", async () => {
+  const { player, audio, gap } = await loadTwoChunkDoc(500)
   audio.listeners.ended()
-  await vi.advanceTimersByTimeAsync(100)
+  await vi.advanceTimersByTimeAsync(0)
+
   player.togglePlay() // pause
-  await vi.advanceTimersByTimeAsync(1000)
-  expect(audio.src).toContain("c1")
+  expect(gap.paused).toBeGreaterThan(0)
   expect(player.getSnapshot().playing).toBe(false)
+
+  // A clip that ends anyway (the stop raced the media thread) must not resume.
+  gap.listeners.ended()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(audio.src).toContain("c1")
 })
 
-it("jumping during the gap plays the target at once and drops the stale timer", async () => {
-  const { player, audio } = await loadTwoChunkDoc(500)
+it("jumping during the gap plays the target and ignores the stale clip end", async () => {
+  const { player, audio, gap } = await loadTwoChunkDoc(500)
   audio.listeners.ended()
-  await vi.advanceTimersByTimeAsync(100)
-  const playSpy = vi.spyOn(audio, "play")
+  await vi.advanceTimersByTimeAsync(0)
+
   player.jump(0)
   await vi.advanceTimersByTimeAsync(0)
   expect(audio.src).toContain("c1")
-  expect(playSpy).toHaveBeenCalledTimes(1)
+
+  gap.listeners.ended()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(audio.src).toContain("c1") // still the jump target, not c2
+})
+
+it("falls back to playing the next sentence when the clip cannot play", async () => {
+  const { audio, gap } = await loadTwoChunkDoc(500)
+  // Autoplay policies can reject a play() on the gap element; silence must
+  // never become a dead end that strands playback mid-chapter.
+  gap.play = () => Promise.reject(new Error("NotAllowedError"))
+
+  audio.listeners.ended()
   await vi.advanceTimersByTimeAsync(1000)
-  // the stale gap timer must not fire a second play() for c2
-  expect(playSpy).toHaveBeenCalledTimes(1)
-  expect(audio.src).toContain("c1")
+  expect(audio.src).toContain("c2")
 })
 
 it("setPause commits pause_ms to the server", async () => {

@@ -12,6 +12,7 @@ import {
   type Status,
   type Voice,
 } from "./api"
+import { silentWavUrl } from "./silence"
 
 export interface PlayerSnapshot {
   docId: string
@@ -44,6 +45,11 @@ const SAVE_DEBOUNCE_MS = 300
  */
 class PlayerEngine {
   private audio = new Audio()
+  // Plays silence between sentences. A setTimeout cannot do this job: Chrome
+  // clamps timers to 1s in a hidden tab and to ~1/minute once it has been
+  // hidden a while without sound, which stalled a backgrounded reader between
+  // every sentence. Media playback is never throttled that way.
+  private gap = new Audio()
   private doc: Doc = { doc_id: "", chunks: [], position: 0, voice: "", speed: 1, volume: 1 }
   private idx = 0
   private playing = false
@@ -52,6 +58,9 @@ class PlayerEngine {
   private muted = false
   private durations: Record<string, number> = {}
   private playToken = 0
+  // playToken value the pending silence belongs to; 0 when none is pending.
+  private gapToken = 0
+  private gapPrimed = false
   private saveTimer: ReturnType<typeof setTimeout> | undefined
   private voices: Voice[] = []
   private engine: EngineInfo | null = null
@@ -63,6 +72,7 @@ class PlayerEngine {
   constructor() {
     this.snap = this.buildSnapshot()
     this.audio.addEventListener("ended", () => this.advance())
+    this.gap.addEventListener("ended", () => this.gapFinished())
   }
 
   subscribe = (fn: () => void) => {
@@ -176,6 +186,7 @@ class PlayerEngine {
   }
 
   private async playCurrent(retries = 5) {
+    this.stopGap()
     const token = ++this.playToken
     if (this.idx >= this.doc.chunks.length) {
       this.playing = false
@@ -222,20 +233,46 @@ class PlayerEngine {
       this.emit()
       return
     }
-    // Every chunk is one sentence (chunker.py), so this gap is the pause
-    // between sentences. Scaled by playback rate: a faster narrator also
-    // breathes faster. The token invalidates the timer when a jump, pause or
-    // paste starts something else before it fires.
-    const gap = (this.doc.pause_ms ?? 0) / this.doc.speed
-    if (gap <= 0) {
+    // Every chunk is one sentence (chunker.py), so this silence is the pause
+    // between sentences.
+    const pause = this.doc.pause_ms ?? 0
+    if (pause <= 0) {
       this.playCurrent()
       return
     }
-    const token = ++this.playToken
-    this.emit() // highlight the next sentence during the silence
-    setTimeout(() => {
-      if (this.playing && token === this.playToken) this.playCurrent()
-    }, gap)
+    this.gapToken = ++this.playToken
+    this.emit() // highlight the next sentence while the silence plays
+    this.gap.src = silentWavUrl(pause)
+    // Played faster when the narrator is: a 500ms clip at 2x lasts 250ms.
+    this.gap.playbackRate = this.doc.speed
+    this.gap.play().catch(() => {
+      // Autoplay policies can refuse the clip. Losing the pause beats
+      // stranding playback, so fall through to the next sentence.
+      if (this.playing && this.gapToken === this.playToken) this.gapFinished()
+    })
+  }
+
+  /** Play (and immediately stop) the silence while the play click is still the
+   *  current user gesture: Safari and iOS refuse an element that has never
+   *  been started by one, and every later gap play happens unprompted. */
+  private primeGap() {
+    if (this.gapPrimed) return
+    this.gapPrimed = true
+    this.gap.src = silentWavUrl(1)
+    this.gap.play().then(() => this.gap.pause()).catch(() => {})
+  }
+
+  /** The silence finished (or could not play): start the sentence it preceded. */
+  private gapFinished() {
+    if (this.gapToken !== this.playToken || !this.playing) return
+    this.gapToken = 0
+    this.playCurrent()
+  }
+
+  /** Abandon a silence in progress; a clip that ends anyway is then ignored. */
+  private stopGap() {
+    this.gapToken = 0
+    this.gap.pause()
   }
 
   jump(i: number) {
@@ -258,9 +295,11 @@ class PlayerEngine {
     this.playing = !this.playing
     if (!this.playing) {
       this.audio.pause()
+      this.stopGap()
       this.emit()
       return
     }
+    this.primeGap()
     const chunk = this.doc.chunks[this.idx]
     const cid = chunk && chunk.id
     if (cid && this.audio.src.endsWith(audioUrl(cid)) && this.audio.currentTime > 0 && !this.audio.ended) {
@@ -380,6 +419,7 @@ class PlayerEngine {
   /** Returns true on success; false means the server rejected the paste. */
   async pasteText(text: string): Promise<boolean> {
     this.audio.pause()
+    this.stopGap()
     this.playing = false
     try {
       const fresh = await api<Doc>("/api/doc", { text })
