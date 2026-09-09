@@ -142,8 +142,11 @@ focus), the card renders that font instead of the saved one and the caption
 reads `Lora — click to use`. Leaving the list reverts. Only the font
 hover-previews; other controls are cheap enough to commit on change.
 
-Below `md` the card is capped at `max-h-40` with a bottom fade mask so the
-strip stays compact; the caption remains.
+Wherever the preview rides on top of the controls it is capped with a
+bottom fade mask so the sticky copy can never outgrow the viewport and
+cover the controls: `max-h-40` below `md`, `max-h-64` from `md`. Only at
+`xl`, where the preview has its own column, is it uncapped. The caption
+always remains.
 
 ### Appearance and Wallpaper → `AppMiniature`
 
