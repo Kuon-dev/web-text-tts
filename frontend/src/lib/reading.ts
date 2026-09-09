@@ -137,6 +137,11 @@ export const DEFAULT_PREFS: ReadingPrefs = {
   wallpaperPos: "center center",
 }
 
+/** Reader column cap in px for a Text width pref: 16px per unit plus a
+ *  6-unit allowance for the tile's horizontal padding. The settings preview
+ *  caption quotes the same figure. */
+export const readerMaxWidth = (width: number): number => (width + 6) * 16
+
 const STORAGE_KEY = "novel-tts:reading"
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v))

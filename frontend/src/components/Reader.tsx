@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button"
 import { imageUrl, type Chunk, type ImageRef } from "@/lib/api"
 import { useFollowChunk } from "@/lib/follow"
 import { player, usePlayer } from "@/lib/player"
-import { FONT_STACKS, type ReadingPrefs } from "@/lib/reading"
+import { FONT_STACKS, readerMaxWidth, type ReadingPrefs } from "@/lib/reading"
 import { cn } from "@/lib/utils"
 
 interface Props {
@@ -86,7 +86,7 @@ export function Reader({ prefs, onPasteClick }: Props) {
           "mx-auto rounded-lg border bg-card/85 backdrop-blur-sm transition-[border-color,box-shadow] duration-700",
           playing ? "border-(--focus-border) shadow-[0_0_44px_-10px_var(--focus-glow)]" : "shadow-sm",
         )}
-        style={{ maxWidth: `min(100%, ${(prefs.width + 6) * 16}px)` }}
+        style={{ maxWidth: `min(100%, ${readerMaxWidth(prefs.width)}px)` }}
       >
         <div
           className="px-5 py-8 sm:px-10 sm:py-10"
