@@ -26,7 +26,7 @@ export function ReadingPreview({ prefs, hoverFont }: { prefs: ReadingPrefs; hove
         </p>
         <p>
           <span className="hl-current rounded-sm box-decoration-clone px-0.5">
-            "You're late," said the man in the grey coat, not unkindly.
+            “You’re late,” said the man in the grey coat, not unkindly.
           </span>{" "}
           <em>So are you</em>, she thought, and said nothing.
         </p>
