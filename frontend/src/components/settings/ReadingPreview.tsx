@@ -12,7 +12,7 @@ export function ReadingPreview({ prefs, hoverFont }: { prefs: ReadingPrefs; hove
     <div className="space-y-2">
       <div
         aria-hidden
-        className="relative max-h-40 overflow-hidden rounded-lg border bg-card/85 px-5 py-4 [mask-image:linear-gradient(to_bottom,black_65%,transparent)] md:max-h-none md:[mask-image:none]"
+        className="relative max-h-40 overflow-hidden rounded-lg border bg-card/85 px-5 py-4 [mask-image:linear-gradient(to_bottom,black_65%,transparent)] md:max-h-64 xl:max-h-none xl:[mask-image:none]"
         style={{
           fontFamily: FONT_STACKS[font],
           fontSize: `${prefs.size}px`,
