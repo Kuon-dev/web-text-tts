@@ -1,27 +1,17 @@
-import { ClipboardPaste } from "lucide-react"
+import { ClipboardPaste, Settings2 } from "lucide-react"
 import { m } from "motion/react"
 import { Button } from "@/components/ui/button"
 import { Clock } from "@/components/Clock"
-import { SettingsDialog } from "@/components/SettingsDialog"
 import { usePlayer } from "@/lib/player"
-import type { ReadingPrefs } from "@/lib/reading"
-import type { ThemePrefs } from "@/lib/theme"
-import type { WallpaperInfo } from "@/lib/wallpaper"
 
 interface Props {
-  prefs: ReadingPrefs
-  update: (patch: Partial<ReadingPrefs>) => void
-  theme: ThemePrefs
-  dark: boolean
-  updateTheme: (patch: Partial<ThemePrefs>) => void
-  reset: () => void
+  showClock: boolean
+  settingsOpen: boolean
+  onSettingsClick: () => void
   onPasteClick: () => void
-  wallpaper: WallpaperInfo | null
-  uploadWallpaper: (file: Blob) => Promise<boolean>
-  removeWallpaper: () => Promise<boolean>
 }
 
-export function TopBar({ prefs, update, theme, dark, updateTheme, reset, onPasteClick, wallpaper, uploadWallpaper, removeWallpaper }: Props) {
+export function TopBar({ showClock, settingsOpen, onSettingsClick, onPasteClick }: Props) {
   const { playing } = usePlayer()
   return (
     <header className="sticky top-0 z-20 px-2 pt-2 sm:px-3 sm:pt-3">
@@ -41,23 +31,23 @@ export function TopBar({ prefs, update, theme, dark, updateTheme, reset, onPaste
         />
         <span className="font-mono text-[13px] font-medium tracking-tight select-none">novel-tts</span>
         <div className="ml-auto flex items-center gap-1.5">
-          {prefs.showClock && (
+          {showClock && (
             <>
               <Clock />
               <div className="h-4 w-px bg-border" aria-hidden />
             </>
           )}
-          <SettingsDialog
-            prefs={prefs}
-            update={update}
-            theme={theme}
-            dark={dark}
-            updateTheme={updateTheme}
-            reset={reset}
-            wallpaper={wallpaper}
-            uploadWallpaper={uploadWallpaper}
-            removeWallpaper={removeWallpaper}
-          />
+          <Button
+            variant={settingsOpen ? "secondary" : "outline"}
+            size="sm"
+            onClick={onSettingsClick}
+            aria-pressed={settingsOpen}
+            title="Settings"
+            aria-label="Settings"
+          >
+            <Settings2 className="size-3.5" aria-hidden />
+            <span className="max-sm:hidden">Settings</span>
+          </Button>
           <Button size="sm" onClick={onPasteClick} data-paste-trigger>
             <ClipboardPaste data-icon="inline-start" aria-hidden />
             Paste chapter
