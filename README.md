@@ -15,9 +15,11 @@ Paste a chapter (button top right, or edit `novel.txt`), press Play.
   under GPU contention) or **Qwen3-TTS 1.7B** (9 preset speakers incl. native
   Japanese, GPU-only; pauses generation when GPU is busy — playback waits, UI
   explains why). Switching engine regenerates cached audio; per-engine voice memory.
-- Aa menu (top right): theme (light / dark / system) + accent color, reading font
-  (Georgia / Literata / Inter / System), size, line & paragraph spacing, text
-  width, justify, auto-scroll — saved in the browser
+- Settings (top right, also `#settings` in the URL): a page in place of the reader
+  with a live preview — theme / palette / accent, reading font (18 faces, listed
+  in their own face), size, line & paragraph spacing, text width, justify,
+  auto-scroll, wallpaper fit / position / opacity, narrator and engine. Saved in
+  the browser; Esc or the back button returns to the chapter.
 - Position (per chapter), voice, speed, volume, and sentence pause are saved — close anything, it resumes.
 - Audio cache: `cache/` (2 GiB cap, auto-evicted). Switching engine, changing style
   instruction, or replacing a clone's reference clip regenerates that voice's
