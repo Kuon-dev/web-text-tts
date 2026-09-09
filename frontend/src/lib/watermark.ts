@@ -7,6 +7,9 @@
  * uses anti-theft / translator-note phrasing. Filtering is per sentence
  * inside each line so mid-paragraph injections vanish without taking the
  * surrounding story text with them.
+ *
+ * The one link that is never a watermark is a markdown image — that is an
+ * illustration, and its URL must not condemn the paragraph carrying it.
  */
 
 export interface StripResult {
@@ -15,6 +18,13 @@ export interface StripResult {
 }
 
 const SCHEME_RE = /https?:\/\/\S+|\bwww\.\S+/i
+
+// `![alt](src)` — an illustration pasted as markdown. Blanked out before any
+// rule runs, so the image's own URL can never flag its paragraph, while a
+// watermark sharing that paragraph is still caught on what remains. The plain
+// link form `[text](src)` is deliberately NOT exempt: that one is watermark-
+// shaped ("[Read more](https://…)").
+const MD_IMAGE_RE = /!\[[^\]]*\]\([^)]*\)/g
 
 // Bare domains ("fanstranslations.com") on TLDs that aren't English words.
 // Lowercase-only on purpose: missing-space scrape typos ("He stopped.Together
@@ -28,30 +38,52 @@ const RISKY_DOMAIN_RE =
   /\b[a-z0-9][a-z0-9-]*(?:\.[a-z0-9][a-z0-9-]*)*\.(?:top|site|online|blog|club|shop|space|fun|live|me|co|vip|life|world|today|store|website|stream|app|page|link|tv)\b/
 const CONTEXT_RE = /\b(?:read|visit|chapters?|novels?|updated?|translat\w*|released?|free|latest|source)\b/i
 
+// What a watermark is *about*: the stolen thing. Every phrase rule below that
+// could otherwise fire on narration ("stop stealing glances", "support the
+// translation of the tablet") requires one of these nearby, so the rule keys
+// on published content rather than on a verb the story also uses.
+const WORK_RE =
+  /\b(?:content|chapters?|translat(?:ion|ions|or|ors)|novels?|stor(?:y|ies)|works?|stuff|texts?|posts?|sites?|websites?|releases?)\b/
+
 // Anti-theft phrasing that needs no URL. Imperatives are anchored to the
 // sentence start ("Stop stealing…") because mid-sentence occurrences are
 // usually narration ("she wanted him to stop stealing").
 const PHRASE_RES = [
-  /^\W*(?:stop|don'?t|do not) steal(?:ing)?\b/i,
+  // "Stop stealing my content" / "Stop stealing from me", but not "Stop
+  // stealing glances at me" — the object has to be the work or its author.
+  new RegExp(
+    `^\\W*(?:stop|don'?t|do not) steal(?:ing)?\\b(?:\\s+from (?:me|us)\\b|[^.!?\\n]{0,40}${WORK_RE.source})`,
+    "i",
+  ),
   /\bcreate your own stuff\b/i,
   /\bthis (?:content|chapter|translation|novel|story) (?:is|was|has been) (?:stolen|taken|copied|ripped|posted)\b/i,
-  /\bif you(?:'re| are) (?:reading|seeing) this (?:on|at|from|anywhere)\b/i,
+  // "If you're reading this on any other site" — but not the letter-to-the-
+  // reader that light novels are fond of ("If you are reading this, I am dead").
+  /\bif you(?:'re| are) (?:reading|seeing) this\b[^.!?\n]{0,50}\b(?:sites?|web ?sites?|web ?pages?|apps?|aggregator|other than|elsewhere|anywhere else)\b/i,
   /\btranslat(?:ion|ions|or|ors)\b[^.!?\n]{0,40}\b(?:hosted|posted|available|belongs?|property|exclusive)\b/i,
-  /\bplease (?:read|support)\b[^.!?\n]{0,40}\b(?:translat\w+|official|original)\b/i,
-  /\bsupport (?:the|our|your|this) translat\w+\b/i,
-  /\bjoin (?:us|our|my|the)\b[^.!?\n]{0,24}\bdiscord\b/i,
-  /\b(?:patreon|ko-?fi)\b/i,
+  // "Please read the official release", not "please read the official report".
+  /\bplease (?:read|support)\b[^.!?\n]{0,40}\b(?:translat\w+|(?:official|original) (?:version|release|source|page|site|website|chapters?|novels?))\b/i,
+  // "Support the translator", not "Support the translation of the tablet".
+  /\bsupport (?:the|our|your|this) translat(?:ion|ions|or|ors)\b(?!\s+of\b)/i,
+  // Discord the service, not discord the strife ("the discord of battle").
+  /\bjoin (?:us|our|my|the)\b[^.!?\n]{0,24}\bdiscord\b(?!\s+(?:of|among|amongst|between|and)\b)/i,
+  // "kofi" unhyphenated is a given name, so only ko-fi proper counts.
+  /\bpatreon\b|\bko-fi\b/i,
   /\b(?:aggregator|pirate) ?sites?\b/i,
   /\bnovel ?updates\b/i,
-  /\bread (?:the )?(?:official|original|latest) (?:version|release|translation|chapters?)\b/i,
-  /\bunauthorized (?:copy|copies|reproduction|reposting|use)\b/i,
+  // Imperative only: "She read the original version of the manuscript" is prose.
+  /^\W*read (?:the )?(?:official|original|latest) (?:version|release|translation|chapters?)\b/i,
+  // "Unauthorized use" alone is ordinary plot material (of a seal, of magic).
+  /\bunauthorized (?:cop(?:y|ies|ying)|reproduction|reposting|distribution)\b/i,
 ]
 
 // Sentences inside quotation marks are story dialogue — a character may well
 // yell "Stop stealing from me!". Phrase detection skips them; URLs still count.
 const QUOTED_RE = /["“”「」『』«»]/
 
-function isWatermark(s: string): boolean {
+function isWatermark(sentence: string): boolean {
+  const s = sentence.replace(MD_IMAGE_RE, " ")
+  if (!s.trim()) return false // the sentence was nothing but illustrations
   if (SCHEME_RE.test(s) || SAFE_DOMAIN_RE.test(s)) return true
   if (!QUOTED_RE.test(s) && PHRASE_RES.some((re) => re.test(s))) return true
   return RISKY_DOMAIN_RE.test(s) && CONTEXT_RE.test(s)

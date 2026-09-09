@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dialog"
 import { Textarea } from "@/components/ui/textarea"
 import { importImageUrl, uploadImage, type ImageInfo } from "@/lib/api"
-import { htmlChapter, imgPlaceholder } from "@/lib/paste"
+import { htmlChapter, imgPlaceholder, markdownChapter, type HtmlChapter } from "@/lib/paste"
 import { player } from "@/lib/player"
 import { cn } from "@/lib/utils"
 import { stripWatermarks } from "@/lib/watermark"
@@ -71,15 +71,10 @@ export function PasteDialog({ open, onOpenChange }: Props) {
     })
   }
 
-  /** Chapter copied from a web page: keep its illustrations as [img:…] lines. */
-  const importHtml = async (html: string, ta: HTMLTextAreaElement) => {
+  /** Import each placeholder's image, swap in its [img:…] marker, then insert. */
+  const importPlaceholders = async (parsed: string, urls: string[], ta: HTMLTextAreaElement) => {
     const start = ta.selectionStart
     const end = ta.selectionEnd
-    const { text: parsed, urls } = htmlChapter(html)
-    if (!urls.length) {
-      insertCleaned(ta, start, end, parsed)
-      return
-    }
     setImporting((n) => n + 1)
     const tid = toast.loading(`Importing ${urls.length} image${urls.length > 1 ? "s" : ""}…`)
     try {
@@ -96,6 +91,26 @@ export function PasteDialog({ open, onOpenChange }: Props) {
     } finally {
       setImporting((n) => n - 1)
     }
+  }
+
+  /** Chapter copied from a web page: keep its illustrations as [img:…] lines. */
+  const importHtml = async (html: string, ta: HTMLTextAreaElement) => {
+    const { text: parsed, urls } = htmlChapter(html)
+    if (!urls.length) {
+      insertCleaned(ta, ta.selectionStart, ta.selectionEnd, parsed)
+      return
+    }
+    await importPlaceholders(parsed, urls, ta)
+  }
+
+  /** Chapter pasted as markdown: import its ![alt](src) images the same way. */
+  const importMarkdown = (md: HtmlChapter, ta: HTMLTextAreaElement) => importPlaceholders(md.text, md.urls, ta)
+
+  /** Plain text: import any markdown images, else just filter watermarks. */
+  const insertPlain = (ta: HTMLTextAreaElement, plain: string) => {
+    const md = markdownChapter(plain)
+    if (md.urls.length) return void importMarkdown(md, ta)
+    insertCleaned(ta, ta.selectionStart, ta.selectionEnd, plain)
   }
 
   /** Image data on the clipboard (copy image / screenshot). */
@@ -133,13 +148,12 @@ export function PasteDialog({ open, onOpenChange }: Props) {
       void importHtml(html, e.currentTarget)
       return
     }
-    // Plain text falls through to the default paste unless it carries
-    // watermarks, so clean pastes keep the native undo stack.
+    // Plain text falls through to the default paste unless it carries markdown
+    // illustrations or watermarks, so clean pastes keep the native undo stack.
     const plain = cd.getData("text/plain")
-    if (plain && stripWatermarks(plain).removed.length) {
+    if (plain && (markdownChapter(plain).urls.length || stripWatermarks(plain).removed.length)) {
       e.preventDefault()
-      const ta = e.currentTarget
-      insertCleaned(ta, ta.selectionStart, ta.selectionEnd, plain)
+      insertPlain(e.currentTarget, plain)
     }
   }
 
@@ -161,12 +175,12 @@ export function PasteDialog({ open, onOpenChange }: Props) {
       }
       if (blobs.length) return void importBlobs(blobs, ta)
       if (html && /<img[\s>]/i.test(html)) return void importHtml(html, ta)
-      if (plain) return insertCleaned(ta, ta.selectionStart, ta.selectionEnd, plain)
+      if (plain) return insertPlain(ta, plain)
       toast.info("Clipboard is empty")
     } catch {
       try {
         const t = await navigator.clipboard.readText()
-        if (t) insertCleaned(ta, ta.selectionStart, ta.selectionEnd, t)
+        if (t) insertPlain(ta, t)
         else toast.info("Clipboard is empty")
       } catch {
         toast.error("Clipboard unavailable — press Ctrl+V in the text area instead")

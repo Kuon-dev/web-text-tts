@@ -18,6 +18,31 @@ export interface HtmlChapter {
 
 export const imgPlaceholder = (n: number) => `@@IMG${n}@@`
 
+// `![alt](src)`, `![alt](<src>)`, `![alt](src "title")`. The plain link form
+// `[text](src)` is not an image and is left as prose.
+const MD_IMAGE_RE = /!\[[^\]]*\]\(\s*<?([^)\s<>]+)>?(?:\s+"[^"]*")?\s*\)/g
+
+/** Chapter pasted as markdown: pull `![alt](src)` out into image placeholders.
+ *
+ *  Each image is lifted onto a line of its own — the reader only recognises an
+ *  illustration when its `[img:…]` marker is the whole paragraph — and the text
+ *  is normalised to one blank line per break, matching htmlChapter. Text with
+ *  no images is returned untouched so an ordinary paste keeps its formatting. */
+export function markdownChapter(text: string): HtmlChapter {
+  const urls: string[] = []
+  const staged = text.replace(MD_IMAGE_RE, (_m, src: string) => {
+    urls.push(src)
+    return `\n${imgPlaceholder(urls.length - 1)}\n`
+  })
+  if (!urls.length) return { text, urls }
+  const out = staged
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join("\n\n")
+  return { text: out, urls }
+}
+
 export function htmlChapter(html: string): HtmlChapter {
   const doc = new DOMParser().parseFromString(html, "text/html")
   const urls: string[] = []

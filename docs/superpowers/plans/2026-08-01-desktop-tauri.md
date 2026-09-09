@@ -21,7 +21,7 @@
 - Pinned dependency versions (verified against crates.io and npm on 2026-08-01):
   `tauri` 2.11.5 · `tauri-build` 2.6.3 · `tauri-plugin-single-instance` 2.4.3 · `tauri-plugin-window-state` 2.4.1 · `tauri-plugin-opener` 2.5.4 · `win32job` 2 · `@tauri-apps/cli` 2.11.4 · `@tauri-apps/api` 2.11.1 · `vitest` 4.1.10. Pin the major in `Cargo.toml` (`"2"`).
 - **No HTTP-client crate.** The readiness probe is hand-rolled over `std::net::TcpStream` with a `Connection: close` request header so read-to-EOF terminates cleanly. Do not add `ureq`/`reqwest`.
-- macOS deployment target is `13.3`; Vite build target is `safari16` on macOS and `chrome105` on Windows. Never `safari13` — `index.css` uses `oklch()`/`color-mix()` and `watermark.ts:61` uses a regex lookbehind with no fallback.
+- macOS deployment target is `13.3`; Vite build target is `safari16` on macOS and `chrome105` on Windows. Never `safari13` — `index.css` uses `oklch()`/`color-mix()` and `watermark.ts:81` uses a regex lookbehind with no fallback.
 - The desktop Vite build outputs to `desktop/dist`. **Never** `../static` — `frontend/vite.config.ts:19-22` builds there with `emptyOutDir: true` and would delete the web app's bundle.
 - Line numbers below were checked against `a370a19`. Re-read a file before editing it.
 
