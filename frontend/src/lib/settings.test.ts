@@ -76,6 +76,6 @@ describe("filterFonts", () => {
     expect(filterFonts("nope")).toBe(FONT_GROUPS)
   })
   it("returns exactly the named group", () => {
-    expect(filterFonts("Monospace")).toEqual([{ label: "Monospace", fonts: ["jetbrains", "courier"] }])
+    expect(filterFonts("Sans serif")).toEqual([{ label: "Sans serif", fonts: ["inter", "sourcesans", "notosans", "atkinson", "system"] }])
   })
 })

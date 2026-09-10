@@ -3,44 +3,41 @@
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist";
 
-/* Reading fonts (all bundled locally; wght-italic gives true italics, not synthesized) */
-@import "@fontsource-variable/inter";
-@import "@fontsource-variable/inter/wght-italic.css";
-@import "@fontsource-variable/literata";
-@import "@fontsource-variable/literata/wght-italic.css";
-@import "@fontsource-variable/lora";
-@import "@fontsource-variable/lora/wght-italic.css";
+/* Reading fonts, all bundled locally. Faces with an optical-size axis import
+   opsz.css (weight rides along; the package's index.css would be weight only),
+   and every face loads its drawn italic — fiction is italic-heavy and
+   synthesized obliques are noticeably worse. */
+@import "@fontsource-variable/literata/opsz.css";
+@import "@fontsource-variable/literata/opsz-italic.css";
+@import "@fontsource-variable/source-serif-4/opsz.css";
+@import "@fontsource-variable/source-serif-4/opsz-italic.css";
+@import "@fontsource-variable/newsreader/opsz.css";
+@import "@fontsource-variable/newsreader/opsz-italic.css";
+@import "@fontsource/charis-sil";
+@import "@fontsource/charis-sil/700.css";
+@import "@fontsource/charis-sil/400-italic.css";
+@import "@fontsource/charis-sil/700-italic.css";
+@import "@fontsource-variable/libre-baskerville";
+@import "@fontsource-variable/libre-baskerville/wght-italic.css";
 @import "@fontsource-variable/merriweather";
 @import "@fontsource-variable/merriweather/wght-italic.css";
+@import "@fontsource-variable/lora";
+@import "@fontsource-variable/lora/wght-italic.css";
 @import "@fontsource-variable/eb-garamond";
 @import "@fontsource-variable/eb-garamond/wght-italic.css";
-@import "@fontsource-variable/crimson-pro";
-@import "@fontsource-variable/crimson-pro/wght-italic.css";
 @import "@fontsource-variable/bitter";
 @import "@fontsource-variable/bitter/wght-italic.css";
-@import "@fontsource-variable/nunito";
-@import "@fontsource-variable/nunito/wght-italic.css";
-@import "@fontsource/atkinson-hyperlegible";
-@import "@fontsource/atkinson-hyperlegible/700.css";
-@import "@fontsource/atkinson-hyperlegible/400-italic.css";
-@import "@fontsource/atkinson-hyperlegible/700-italic.css";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/inter/wght-italic.css";
+@import "@fontsource-variable/source-sans-3";
+@import "@fontsource-variable/source-sans-3/wght-italic.css";
+@import "@fontsource-variable/noto-sans";
+@import "@fontsource-variable/noto-sans/wght-italic.css";
+@import "@fontsource-variable/atkinson-hyperlegible-next";
+@import "@fontsource-variable/atkinson-hyperlegible-next/wght-italic.css";
+/* UI monospace (--font-mono) */
 @import "@fontsource-variable/jetbrains-mono";
 @import "@fontsource-variable/jetbrains-mono/wght-italic.css";
-@import "@fontsource/courier-prime";
-@import "@fontsource/courier-prime/700.css";
-@import "@fontsource/courier-prime/400-italic.css";
-@import "@fontsource/courier-prime/700-italic.css";
-@import "@fontsource-variable/caveat";
-@import "@fontsource-variable/dancing-script";
-@import "@fontsource/patrick-hand";
-@import "@fontsource/comic-neue";
-@import "@fontsource/comic-neue/700.css";
-@import "@fontsource/comic-neue/400-italic.css";
-@import "@fontsource/comic-neue/700-italic.css";
-@import "@fontsource/averia-serif-libre";
-@import "@fontsource/averia-serif-libre/700.css";
-@import "@fontsource/averia-serif-libre/400-italic.css";
-@import "@fontsource/averia-serif-libre/700-italic.css";
 
 @custom-variant dark (&:is(.dark *));
 

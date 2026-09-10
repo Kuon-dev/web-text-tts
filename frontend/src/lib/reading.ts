@@ -1,24 +1,21 @@
 import { useCallback, useState } from "react"
 
 export type FontKey =
-  | "georgia"
   | "literata"
-  | "lora"
+  | "georgia"
+  | "sourceserif"
+  | "newsreader"
+  | "charis"
+  | "librebaskerville"
   | "merriweather"
+  | "lora"
   | "ebgaramond"
-  | "crimson"
   | "bitter"
   | "inter"
-  | "nunito"
+  | "sourcesans"
+  | "notosans"
   | "atkinson"
   | "system"
-  | "jetbrains"
-  | "courier"
-  | "caveat"
-  | "dancing"
-  | "patrick"
-  | "comic"
-  | "averia"
 
 export type WallpaperFit = "cover" | "contain" | "stretch" | "tile" | "center"
 
@@ -50,80 +47,77 @@ export interface ReadingPrefs {
   wallpaperPos: string
 }
 
+/** Every face here was picked for hours of continuous reading: large
+ *  x-height, low stroke contrast, open apertures, true italics. Literata,
+ *  Source Serif 4 and Newsreader also carry an optical-size axis, which the
+ *  browser drives from the font size on its own (font-optical-sizing: auto).
+ *  No script, comic, or monospace faces — no e-reader ships them, and the
+ *  reading-speed literature gives them nothing. */
 export const FONT_STACKS: Record<FontKey, string> = {
-  georgia: 'Georgia, "Times New Roman", serif',
   literata: '"Literata Variable", Georgia, serif',
-  lora: '"Lora Variable", Georgia, serif',
+  georgia: 'Georgia, "Times New Roman", serif',
+  sourceserif: '"Source Serif 4 Variable", Georgia, serif',
+  newsreader: '"Newsreader Variable", Georgia, serif',
+  charis: '"Charis SIL", Charter, Georgia, serif',
+  librebaskerville: '"Libre Baskerville Variable", Baskerville, Georgia, serif',
   merriweather: '"Merriweather Variable", Georgia, serif',
+  lora: '"Lora Variable", Georgia, serif',
   ebgaramond: '"EB Garamond Variable", Garamond, Georgia, serif',
-  crimson: '"Crimson Pro Variable", Georgia, serif',
   bitter: '"Bitter Variable", "Roboto Slab", Georgia, serif',
   inter: '"Inter Variable", system-ui, sans-serif',
-  nunito: '"Nunito Variable", system-ui, sans-serif',
-  atkinson: '"Atkinson Hyperlegible", system-ui, sans-serif',
+  sourcesans: '"Source Sans 3 Variable", system-ui, sans-serif',
+  notosans: '"Noto Sans Variable", system-ui, sans-serif',
+  atkinson: '"Atkinson Hyperlegible Next Variable", "Atkinson Hyperlegible", system-ui, sans-serif',
   system: 'system-ui, -apple-system, "Segoe UI", sans-serif',
-  jetbrains: '"JetBrains Mono Variable", Consolas, monospace',
-  courier: '"Courier Prime", "Courier New", monospace',
-  caveat: '"Caveat Variable", cursive',
-  dancing: '"Dancing Script Variable", cursive',
-  patrick: '"Patrick Hand", cursive',
-  comic: '"Comic Neue", "Comic Sans MS", cursive',
-  averia: '"Averia Serif Libre", Georgia, serif',
 }
 
 export const FONT_LABELS: Record<FontKey, string> = {
-  georgia: "Georgia",
   literata: "Literata",
-  lora: "Lora",
+  georgia: "Georgia",
+  sourceserif: "Source Serif 4",
+  newsreader: "Newsreader",
+  charis: "Charis SIL",
+  librebaskerville: "Libre Baskerville",
   merriweather: "Merriweather",
+  lora: "Lora",
   ebgaramond: "EB Garamond",
-  crimson: "Crimson Pro",
   bitter: "Bitter",
   inter: "Inter",
-  nunito: "Nunito",
-  atkinson: "Atkinson Hyperlegible",
+  sourcesans: "Source Sans 3",
+  notosans: "Noto Sans",
+  atkinson: "Atkinson Hyperlegible Next",
   system: "System",
-  jetbrains: "JetBrains Mono",
-  courier: "Courier Prime",
-  caveat: "Caveat",
-  dancing: "Dancing Script",
-  patrick: "Patrick Hand",
-  comic: "Comic Neue",
-  averia: "Averia Serif",
 }
 
 /** Short style hints shown next to each font in the picker. */
 export const FONT_HINTS: Record<FontKey, string> = {
-  georgia: "classic",
   literata: "e-book",
-  lora: "calligraphic",
+  georgia: "classic",
+  sourceserif: "modern book",
+  newsreader: "editorial",
+  charis: "low contrast",
+  librebaskerville: "bright, wide",
   merriweather: "sturdy",
+  lora: "calligraphic",
   ebgaramond: "old print",
-  crimson: "elegant",
   bitter: "slab",
   inter: "modern",
-  nunito: "rounded",
+  sourcesans: "humanist",
+  notosans: "neutral",
   atkinson: "high legibility",
   system: "device default",
-  jetbrains: "coding",
-  courier: "typewriter",
-  caveat: "handwritten",
-  dancing: "flowing cursive",
-  patrick: "neat handprint",
-  comic: "comic",
-  averia: "storybook",
 }
 
 export const FONT_GROUPS: { label: string; fonts: FontKey[] }[] = [
-  { label: "Serif", fonts: ["georgia", "literata", "lora", "merriweather", "ebgaramond", "crimson", "bitter"] },
-  { label: "Sans serif", fonts: ["inter", "nunito", "atkinson", "system"] },
-  { label: "Monospace", fonts: ["jetbrains", "courier"] },
-  { label: "Handwriting", fonts: ["caveat", "dancing", "patrick"] },
-  { label: "Stylized", fonts: ["comic", "averia"] },
+  {
+    label: "Serif",
+    fonts: ["literata", "georgia", "sourceserif", "newsreader", "charis", "librebaskerville", "merriweather", "lora", "ebgaramond", "bitter"],
+  },
+  { label: "Sans serif", fonts: ["inter", "sourcesans", "notosans", "atkinson", "system"] },
 ]
 
 export const DEFAULT_PREFS: ReadingPrefs = {
-  font: "georgia",
+  font: "literata",
   size: 18,
   lineHeight: 1.75,
   width: 44,

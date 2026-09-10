@@ -24,7 +24,7 @@ Paste a chapter (button in the dock along the bottom, or edit `novel.txt`), pres
   disk and minutes on a first download — on the engine card and in one toast
   that follows it from switching to loading to ready.
 - Settings (in the dock, also `#settings` in the URL): a page in place of the reader
-  with a live preview — theme / palette / accent, reading font (18 faces, listed
+  with a live preview — theme / palette / accent, reading font (15 faces, listed
   in their own face), size, line & paragraph spacing, text width, justify,
   auto-scroll, wallpaper fit / position / opacity, narrator and engine. Saved in
   the browser; Esc or the back button returns to the chapter.

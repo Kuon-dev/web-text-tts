@@ -364,3 +364,42 @@ visual check that the reader returns to its scroll position.
   the smooth scroll on section switch checks the media query directly.
 - Hover preview never changes saved state; keyboard focus previews the same
   way so the pane is usable without a pointer.
+
+## Addendum: reading-font list curated for long sessions (2026-09-10)
+
+The picker had grown to 18 faces across five groups, and the Handwriting,
+Stylized and Monospace groups (Caveat, Dancing Script, Patrick Hand, Comic
+Neue, Averia Serif Libre, JetBrains Mono, Courier Prime) were never fit for
+hours of prose: script faces have no italics and uneven rhythm, and no
+e-reader ships them. Research across Kindle, Apple Books, Safari Reader,
+Kobo and Matter (9–11 faces each, all text serifs plus a sans or two and
+an accessibility face) and the reading-speed literature (Wallace et al.
+2022: per-reader font effects up to +35% WPM, no single winner, so offer a
+curated menu of low-contrast, large-x-height faces with true italics) led
+to two groups and 15 faces:
+
+- Serif: Literata, Georgia, Source Serif 4, Newsreader, Charis SIL, Libre
+  Baskerville, Merriweather, Lora, EB Garamond, Bitter.
+- Sans serif: Inter, Source Sans 3, Noto Sans, Atkinson Hyperlegible Next,
+  System.
+
+Added: Source Serif 4 and Newsreader (drawn for continuous on-screen
+reading, optical-size axis), Charis SIL (the open stand-in for Charter,
+Apple Books' and Medium's body face), Libre Baskerville (redrawn for 16 px
+body text), Source Sans 3, Noto Sans (top of the Readability Consortium's
+2020 study), and Atkinson Hyperlegible Next (variable, true italics; the
+`atkinson` pref key now maps to it). Removed: the seven above plus Nunito
+(a rounded UI face) and Crimson Pro (light at 400, overlaps EB Garamond).
+Saved prefs naming a removed key fall back to the default as before.
+
+The default font is now Literata: Georgia was designed for 96 ppi screens
+and Apple dropped it from Books for sustained reading on that ground. Only
+fresh installs see the change.
+
+Literata, Source Serif 4 and Newsreader import Fontsource's `opsz.css` /
+`opsz-italic.css` rather than the package default: the default `index.css`
+is the weight-only file and silently drops the optical-size axis. The
+browser drives `opsz` from the font size (`font-optical-sizing: auto`), so
+nothing is set in CSS. Merriweather's optical range starts at 18 px, so its
+weight-only file is kept. JetBrains Mono stays bundled for the UI
+monospace token only.
