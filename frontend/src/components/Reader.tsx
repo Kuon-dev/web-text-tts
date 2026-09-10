@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react"
+import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react"
 import { BookOpenText, ClipboardPaste } from "lucide-react"
 import { m } from "motion/react"
 import { Button } from "@/components/ui/button"
@@ -13,9 +13,25 @@ interface Props {
   onPasteClick: () => void
 }
 
+/**
+ * The chapter whose entrance has already played. Module scope rather than a
+ * ref because the reader unmounts while the settings page is up: a per-instance
+ * ref would forget, and every trip back from settings would replay the whole
+ * chapter entrance — thousands of paragraphs animating at once, which is the
+ * stutter this exists to avoid.
+ */
+let enteredDoc: string | null = null
+
 type Block =
   | { kind: "text"; para: number; items: { chunk: Chunk; i: number }[] }
   | { kind: "image"; para: number; img: ImageRef }
+
+/** Entrance delay for the top of the chapter. Past the tenth block every
+ *  delay was already the same 0.4s cap, so only the first ten need to say so
+ *  and the rest inherit the cap from the stylesheet. */
+function stagger(pi: number): CSSProperties | undefined {
+  return pi < 10 ? ({ "--rd-d": `${pi * 0.04}s` } as CSSProperties) : undefined
+}
 
 export function Reader({ prefs, onPasteClick }: Props) {
   const { docId, chunks, images, idx, playing, ready, failed } = usePlayer()
@@ -44,6 +60,16 @@ export function Reader({ prefs, onPasteClick }: Props) {
     groups.sort((a, b) => a.para - b.para)
     return groups
   }, [chunks, images])
+
+  // The entrance belongs to a chapter arriving, not to this component
+  // mounting. Decided once per document and held in a ref so the double render
+  // under StrictMode and every playback tick all see the same answer.
+  const entrance = useRef<{ doc: string; on: boolean }>({ doc: docId, on: enteredDoc !== docId })
+  if (entrance.current.doc !== docId) entrance.current = { doc: docId, on: enteredDoc !== docId }
+  const entering = entrance.current.on
+  useLayoutEffect(() => {
+    enteredDoc = docId
+  }, [docId])
 
   useFollowChunk(idx, docId, prefs.autoScroll && chunks.length > 0)
 
@@ -89,7 +115,7 @@ export function Reader({ prefs, onPasteClick }: Props) {
         style={{ maxWidth: `min(100%, ${readerMaxWidth(prefs.width)}px)` }}
       >
         <div
-          className="px-5 py-8 sm:px-10 sm:py-10"
+          className={cn("px-5 py-8 sm:px-10 sm:py-10", entering && "rd-enter")}
           style={{
             fontFamily: FONT_STACKS[prefs.font],
             fontSize: `${prefs.size}px`,
@@ -99,12 +125,9 @@ export function Reader({ prefs, onPasteClick }: Props) {
         >
       {blocks.map((p, pi) =>
         p.kind === "image" ? (
-          <m.figure
+          <figure
             key={`img-${p.para}`}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ type: "spring", stiffness: 120, damping: 20, delay: Math.min(pi * 0.04, 0.4) }}
-            style={{ marginBottom: `${prefs.paraSpacing}em` }}
+            style={{ marginBottom: `${prefs.paraSpacing}em`, ...stagger(pi) }}
           >
             <a href={imageUrl(p.img.id)} target="_blank" rel="noreferrer" title="Open full size">
               <img
@@ -116,14 +139,11 @@ export function Reader({ prefs, onPasteClick }: Props) {
                 className="mx-auto h-auto max-w-full rounded-md"
               />
             </a>
-          </m.figure>
+          </figure>
         ) : (
-        <m.p
+        <p
           key={p.para}
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ type: "spring", stiffness: 120, damping: 20, delay: Math.min(pi * 0.04, 0.4) }}
-          style={{ marginBottom: `${prefs.paraSpacing}em` }}
+          style={{ marginBottom: `${prefs.paraSpacing}em`, ...stagger(pi) }}
         >
           {p.items.map(({ chunk, i }) => (
             <span
@@ -145,7 +165,7 @@ export function Reader({ prefs, onPasteClick }: Props) {
               {chunk.text + " "}
             </span>
           ))}
-        </m.p>
+        </p>
         ),
       )}
         </div>

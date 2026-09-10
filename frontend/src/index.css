@@ -728,6 +728,33 @@ html {
     }
 }
 
+/* Chapter entrance: paragraphs rise and fade in, the top of the chapter
+   staggered behind the rest. This was one motion component per paragraph with
+   its own `initial`/`animate` spring — a loaded chapter is a few thousand of
+   them, so re-mounting the reader (which is what closing the settings page
+   does) blocked the main thread for ~600ms building them and then held the
+   page near 15fps while they all ran. Two compositor-only properties driven
+   by CSS cost nothing by comparison, and Reader.tsx now runs the entrance
+   only when a chapter actually arrives, never on a return trip from settings.
+
+   `backwards` holds the opening frame through the delay, the way motion's
+   `initial` did; there is deliberately no forwards fill, so once a paragraph
+   has arrived it carries no animation state at all. */
+.rd-enter > * {
+    animation: rd-enter 420ms cubic-bezier(0.22, 1, 0.36, 1) var(--rd-d, 0.4s) backwards;
+}
+@keyframes rd-enter {
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+}
+@media (prefers-reduced-motion: reduce) {
+    .rd-enter > * {
+        animation: none;
+    }
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
