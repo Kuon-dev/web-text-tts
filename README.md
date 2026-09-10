@@ -21,8 +21,8 @@ Paste a chapter (button in the dock along the bottom, or edit `novel.txt`), pres
   explains why). Switching engine regenerates cached audio; per-engine voice memory.
   A switch reports both of its waits — the swap itself (which queues behind the
   chunk being generated) and the model load that follows it, tens of seconds off
-  disk and minutes on a first download — on the engine card, in the player bar,
-  and with a toast when the new engine is ready.
+  disk and minutes on a first download — on the engine card and in one toast
+  that follows it from switching to loading to ready.
 - Settings (in the dock, also `#settings` in the URL): a page in place of the reader
   with a live preview — theme / palette / accent, reading font (18 faces, listed
   in their own face), size, line & paragraph spacing, text width, justify,

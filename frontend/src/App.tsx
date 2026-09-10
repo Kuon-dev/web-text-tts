@@ -1,10 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { LazyMotion, MotionConfig, domAnimation } from "motion/react"
-import { Toaster, toast } from "sonner"
 import { Dock } from "@/components/dock/Dock"
+import { EngineToasts } from "@/components/EngineToasts"
 import { PasteDialog } from "@/components/PasteDialog"
 import { Reader } from "@/components/Reader"
 import { SettingsPage } from "@/components/settings/SettingsPage"
+import { Toaster } from "@/components/ui/sonner"
 import { player } from "@/lib/player"
 import { useReadingPrefs } from "@/lib/reading"
 import { useTheme } from "@/lib/theme"
@@ -22,11 +23,6 @@ export default function App() {
   useEffect(() => {
     player.start()
   }, [])
-
-  // A model load runs tens of seconds (minutes on a first download) and usually
-  // ends long after the user has closed settings and gone back to reading, so
-  // the end of the wait is announced rather than only shown in the player bar.
-  useEffect(() => player.onEngineReady((label) => toast.success(`${label} ready`)), [])
 
   // UI scale: rem-based chrome (bars, dialogs, controls) scales with the root
   // font-size; reading text is px-based and stays under its own Size pref.
@@ -127,7 +123,14 @@ export default function App() {
             onPasteClick={openPaste}
           />
           <PasteDialog open={pasteOpen} onOpenChange={setPasteOpen} />
-          <Toaster theme={dark ? "dark" : "light"} position="bottom-right" offset={{ bottom: Math.round(88 * prefs.uiScale) }} />
+          <EngineToasts />
+          {/* Toasts stack above the dock, whatever its height (see --dock-h). */}
+          <Toaster
+            theme={dark ? "dark" : "light"}
+            position="bottom-right"
+            offset={{ bottom: "calc(var(--dock-h) + 0.75rem)" }}
+            mobileOffset={{ bottom: "calc(var(--dock-h) + 0.5rem)" }}
+          />
         </div>
       </LazyMotion>
     </MotionConfig>

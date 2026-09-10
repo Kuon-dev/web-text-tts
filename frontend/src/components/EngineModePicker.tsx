@@ -15,6 +15,10 @@ export const ENGINE_OPTIONS: { key: DeviceMode; label: string; Icon: LucideIcon;
 
 const ALL_MODES: DeviceMode[] = ["auto", "gpu", "cpu"]
 
+/** Sonner id shared by every toast about the engine, so a switch is one
+ *  toast updated in place: switching → loading → ready, or → the error. */
+export const ENGINE_TOAST = "engine"
+
 export function activeEngineIcon(engine: EngineInfo | null): LucideIcon {
   return (engine?.active ?? "gpu") === "gpu" ? Gpu : Cpu
 }
@@ -82,7 +86,7 @@ export function EngineList({
     try {
       await player.setEngine(id)
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Engine switch failed — is the server running?")
+      toast.error(err instanceof Error ? err.message : "Engine switch failed — is the server running?", { id: ENGINE_TOAST })
     }
   }
 
