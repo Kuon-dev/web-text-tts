@@ -55,7 +55,7 @@ A new `frontend/src/lib/view.ts` owns the reader/settings switch:
 ### App
 
 `App.tsx` renders `<SettingsPage>` in place of `<Reader>` when the view is
-`settings`. TopBar, wallpaper layer, PlayerBar, PasteDialog and Toaster stay
+`settings`. The wallpaper layer, the dock, PasteDialog and Toaster stay
 mounted. Because the reader unmounts:
 
 - On open, App records `window.scrollY`. On close it restores it in a
@@ -66,21 +66,32 @@ mounted. Because the reader unmounts:
   set, which is how Radix marks an Escape it used to close a popover, select
   or dialog. The existing Space / arrow handler keeps working on the page.
 
-### TopBar
+### Settings toggle
 
-Props shrink to `showClock`, `settingsOpen`, `onSettingsClick`,
-`onPasteClick`. The Settings button toggles the view; while open it renders
-`variant="secondary"` with `aria-pressed`. The nine pass-through pref props
-and the `SettingsDialog` import go away.
+*(2026-09-10: the top bar is gone; its items live in the dock,
+`frontend/src/components/dock/`.)* The dock's Settings item toggles the view;
+while open it renders as the active space (`bg-secondary`, accent icon) with
+`aria-pressed`, and takes focus back when the page closes and focus would
+otherwise land on the body.
 
 ### Page layout
 
 The page is a tile like the reader: `rounded-lg border bg-card/85
-backdrop-blur-sm shadow-sm`, `max-w-[1180px]`, centred, same outer padding as
-the reader (`px-2 pt-2 sm:px-3 sm:pt-3`, bottom padding clears the player
-bar). It enters with the reader's spring (`opacity 0→1, scale 0.985→1, y
-10→0`, stiffness 180, damping 24). No exit animation; the reader animates in
-on its own when it returns.
+backdrop-blur-sm shadow-sm`, `max-w-[1180px]`, centred, with the reader's side
+and top gaps (`px-2 pt-2 sm:px-3 sm:pt-3`). It enters with the reader's spring
+(`opacity 0→1, scale 0.985→1, y 10→0`, stiffness 180, damping 24). No exit
+animation; the reader animates in on its own when it returns.
+
+*(2026-09-10)* The tile is a **fixed-height window**, the System Settings
+model: one window that is the same size for every section, and only its
+content scrolls. `main` is `h-dvh` with a bottom padding of `var(--dock-h)`
+plus the gap, so the tile fills the space between the top gap and the dock
+exactly; the tile is `flex flex-col overflow-hidden`, its header is fixed and
+the body grid is `min-h-0 flex-1`. `--dock-h` is published on `<html>` by
+`Dock.tsx` from a `ResizeObserver` on the footer (bar plus the gap under it;
+a status line makes it taller and the window shrinks to match), with a
+first-paint fallback in `index.css`. The document itself never scrolls while
+settings is open.
 
 Header row (border-b): title **Settings** with a muted one-line subtitle on
 the left; on the right a mono `esc` hint and a **Done** button
@@ -90,9 +101,9 @@ Body, by width:
 
 | Width | Layout |
 |---|---|
-| ≥ 1280px (`xl`) | Three columns: rail 176px · controls `minmax(0,1fr)` capped at 560px · preview `minmax(300px,380px)`. Preview is `sticky top-17`. |
-| 768–1279px (`md`) | Rail · controls. The preview sits at the top of the controls column, sticky. |
-| < 768px | Rail becomes a horizontal, scrollable tab row. Preview on top of the controls, sticky, compact (see Preview). |
+| ≥ 1280px (`xl`) | Three columns: rail 176px · controls pane `minmax(0,1fr)` (content capped at 560px) · preview `minmax(300px,380px)`. Rail and preview are fixed columns; only the pane scrolls (`overflow-y-auto`, thin scrollbar, `scrollbar-gutter: stable` so the content width does not change between sections). |
+| 768–1279px (`md`) | Rail · pane. The preview sits at the top of the pane, `sticky top-0` within it, capped at 560px like the controls. |
+| < 768px | Rail becomes a horizontal, scrollable tab row above the pane. Preview on top of the controls, sticky within the pane, compact (see Preview). |
 
 Rail items: icon + label, `text-muted-foreground`, hover `bg-accent`; the
 active item is `bg-secondary text-foreground` and its icon takes
@@ -101,9 +112,9 @@ active item is `bg-secondary text-foreground` and its icon takes
 sections"`; items are buttons with `aria-current="page"` when active.
 
 Section switch: the controls column is keyed by section and fades in
-(`opacity 0→1, y 4→0`, 150ms ease-out). Switching also scrolls the window to
-the top of the tile if it is scrolled past it (`behavior: "smooth"`, or
-`"auto"` under reduced motion). The last section visited is remembered for
+(`opacity 0→1, y 4→0`, 150ms ease-out). Switching also scrolls the pane back
+to its top if it is scrolled (`behavior: "smooth"`, or `"auto"` under reduced
+motion). The last section visited is remembered for
 the session (module-level variable) and is the default the next time the
 page opens without a section in the hash.
 

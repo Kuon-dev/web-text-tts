@@ -1,7 +1,6 @@
+import { useLayoutEffect, useRef } from "react"
 import type { MouseEvent } from "react"
-import { Loader2 } from "lucide-react"
 import { m } from "motion/react"
-import { useEngineLabel } from "@/components/EngineModePicker"
 import { player, usePlayer } from "@/lib/player"
 import { NarrationBracket, StatusBracket } from "./Modules"
 import { NowPlaying } from "./NowPlaying"
@@ -55,22 +54,26 @@ function ProgressRail({ n, idx }: { n: number; idx: number }) {
  *  status modules (readout, volume, speed, clock) on the right. It is the
  *  only chrome on screen; everything the top bar held lives here now. */
 export function Dock({ showClock, settingsOpen, onSettingsClick, onPasteClick }: Props) {
-  const { chunks, idx, engine, switchingTo, blocked } = usePlayer()
-  const switchingLabel = useEngineLabel(switchingTo)
-  // Deliberately not gated on playback: an engine is nearly always switched
-  // from the settings page with the player paused, and that is precisely the
-  // switch that used to happen in total silence.
-  const statusLine = switchingTo
-    ? `switching to ${switchingLabel}…`
-    : blocked
-      ? "paused — GPU busy (Qwen3 has no CPU mode)"
-      : engine?.loading
-        ? `loading ${engine.label}…`
-        : null
-  const working = switchingTo !== null || !!engine?.loading
+  const { chunks, idx } = usePlayer()
+
+  // The dock is fixed, so nothing else can size itself around it. It
+  // publishes its height (bar plus the gap under it) as --dock-h on <html>;
+  // the settings window and the toasts keep clear of exactly that much.
+  const footerRef = useRef<HTMLElement>(null)
+  useLayoutEffect(() => {
+    const el = footerRef.current
+    if (!el) return
+    const root = document.documentElement
+    const ro = new ResizeObserver(() => root.style.setProperty("--dock-h", `${el.offsetHeight}px`))
+    ro.observe(el)
+    return () => {
+      ro.disconnect()
+      root.style.removeProperty("--dock-h")
+    }
+  }, [])
 
   return (
-    <footer className="fixed inset-x-0 bottom-0 z-20 px-2 pb-2 sm:px-3 sm:pb-3">
+    <footer ref={footerRef} className="fixed inset-x-0 bottom-0 z-20 px-2 pb-2 sm:px-3 sm:pb-3">
       <m.div
         initial={{ y: 18, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
@@ -78,15 +81,6 @@ export function Dock({ showClock, settingsOpen, onSettingsClick, onPasteClick }:
         className="overflow-hidden rounded-lg border bg-card/85 backdrop-blur"
       >
         <ProgressRail n={chunks.length} idx={idx} />
-        {statusLine && (
-          <div
-            role="status"
-            className="flex items-center justify-center gap-1.5 px-3 pt-1.5 font-mono text-[11px] text-muted-foreground"
-          >
-            {working && <Loader2 className="size-3 animate-spin" aria-hidden />}
-            {statusLine}
-          </div>
-        )}
         {/* Below lg the groups spread with flex so nothing can overlap; from
             lg up the grid pins the transport to the exact center, with the
             two setup brackets on the left and the status bracket on the right

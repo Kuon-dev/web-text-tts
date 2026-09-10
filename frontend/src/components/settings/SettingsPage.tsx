@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Image as ImageIcon, MicVocal, Palette, Type, type LucideIcon } from "lucide-react"
 import { m } from "motion/react"
 import { Button } from "@/components/ui/button"
@@ -39,10 +39,15 @@ const SECTION_META: Record<Section, { label: string; Icon: LucideIcon }> = {
 const TILE_SPRING = { type: "spring", stiffness: 180, damping: 24 } as const
 
 /** Settings as a window tile in place of the reader: rail · controls ·
- *  sticky preview. Everything applies live; there is nothing to save. */
+ *  preview. The window is the same size for every section — it fills the
+ *  space between the top gap and the dock, the way System Settings keeps
+ *  one window and scrolls only its content — so the header, the rail and
+ *  the preview stay put and the controls pane scrolls on its own.
+ *  Everything applies live; there is nothing to save. */
 export function SettingsPage(props: SettingsPageProps) {
   const { section, onSectionChange, onClose, prefs, update, theme, dark, updateTheme, resetTheme, wallpaper, uploadWallpaper, removeWallpaper } = props
   const [hoverFont, setHoverFont] = useState<FontKey | null>(null)
+  const pane = useRef<HTMLDivElement>(null)
 
   // Escape closes the page — unless Radix already used it to dismiss a
   // popover (it calls preventDefault in a capture listener), or the user is
@@ -57,16 +62,18 @@ export function SettingsPage(props: SettingsPageProps) {
     return () => document.removeEventListener("keydown", onKey)
   }, [onClose])
 
-  // Clear the hovered font on every section change, hash-driven ones included.
-  useEffect(() => setHoverFont(null), [section])
-
-  const switchTo = (s: Section) => {
-    onSectionChange(s)
-    if (window.scrollY > 0) {
+  // Every section change, hash-driven ones included, clears the hovered font
+  // and starts the pane at its top (smoothly, unless motion is reduced).
+  useEffect(() => {
+    setHoverFont(null)
+    const el = pane.current
+    if (el && el.scrollTop > 0) {
       const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches
-      window.scrollTo({ top: 0, behavior: reduce ? "auto" : "smooth" })
+      el.scrollTo({ top: 0, behavior: reduce ? "auto" : "smooth" })
     }
-  }
+  }, [section])
+
+  const switchTo = (s: Section) => onSectionChange(s)
 
   const preview =
     section === "reading" ? (
@@ -87,14 +94,14 @@ export function SettingsPage(props: SettingsPageProps) {
     )
 
   return (
-    <main className="w-full flex-1 px-2 pt-2 pb-28 sm:px-3 sm:pt-3">
+    <main className="h-dvh w-full px-2 pt-2 pb-[calc(var(--dock-h)+0.5rem)] sm:px-3 sm:pt-3 sm:pb-[calc(var(--dock-h)+0.75rem)]">
       <m.div
         initial={{ opacity: 0, scale: 0.985, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         transition={TILE_SPRING}
-        className="mx-auto max-w-[1180px] rounded-lg border bg-card/85 shadow-sm backdrop-blur-sm"
+        className="mx-auto flex h-full max-w-[1180px] flex-col overflow-hidden rounded-lg border bg-card/85 shadow-sm backdrop-blur-sm"
       >
-        <header className="flex items-center justify-between gap-4 border-b px-5 py-4 sm:px-6">
+        <header className="flex shrink-0 items-center justify-between gap-4 border-b px-5 py-4 sm:px-6">
           <div>
             <h1 className="text-base font-semibold">Settings</h1>
             <p className="text-xs text-muted-foreground">Changes apply as you make them.</p>
@@ -107,8 +114,13 @@ export function SettingsPage(props: SettingsPageProps) {
           </div>
         </header>
 
-        <div className="grid gap-x-8 gap-y-6 px-5 py-5 sm:px-6 md:grid-cols-[176px_minmax(0,1fr)] xl:grid-cols-[176px_minmax(0,1fr)_minmax(300px,380px)]">
-          <nav aria-label="Settings sections" className="-mx-1 flex gap-1 overflow-x-auto px-1 md:mx-0 md:flex-col md:overflow-visible md:px-0">
+        {/* Below md the rail is a row above the pane; from md up it is the
+            left column. Only the pane (the middle cell) scrolls. */}
+        <div className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-x-8 md:grid-cols-[176px_minmax(0,1fr)] md:grid-rows-1 xl:grid-cols-[176px_minmax(0,1fr)_minmax(300px,380px)]">
+          <nav
+            aria-label="Settings sections"
+            className="flex gap-1 overflow-x-auto px-5 pt-5 sm:px-6 md:flex-col md:overflow-visible md:pr-0 md:pb-5"
+          >
             {SECTIONS.map((s) => {
               const { label, Icon } = SECTION_META[s]
               const active = s === section
@@ -130,12 +142,20 @@ export function SettingsPage(props: SettingsPageProps) {
             })}
           </nav>
 
-          <div className="min-w-0 max-w-[560px]">
-            {/* Below xl the preview rides on top of the controls; the wrapper
-                carries the tile background so controls scroll under it cleanly. */}
+          <div
+            ref={pane}
+            className="min-h-0 min-w-0 overflow-y-auto px-5 pb-5 [scrollbar-gutter:stable] [scrollbar-width:thin] sm:px-6 md:pl-0 md:pr-4"
+          >
+            {/* Below xl the preview rides on top of the controls, pinned to
+                the top of the pane; the wrapper carries the tile background
+                so controls scroll under it cleanly, and keeps the 560px cap
+                the controls have. The pane has no top padding of its own
+                (padding would hold a sticky child that far below the edge and
+                let scrolled rows show in the gap), so the top spacing belongs
+                to the wrapper, or to the controls when nothing is pinned. */}
             {preview && (
-              <div className="sticky top-2 z-10 sm:top-3 -mx-5 -mt-4 mb-6 bg-card/85 px-5 pt-4 pb-4 backdrop-blur-sm sm:-mx-6 sm:px-6 xl:hidden">
-                {preview}
+              <div className="sticky top-0 z-10 -mx-5 mb-6 bg-card/90 px-5 pt-5 pb-4 backdrop-blur-md sm:-mx-6 sm:px-6 md:-mr-4 md:ml-0 md:pl-0 md:pr-4 xl:hidden">
+                <div className="max-w-[560px]">{preview}</div>
               </div>
             )}
             <m.div
@@ -143,17 +163,13 @@ export function SettingsPage(props: SettingsPageProps) {
               initial={{ opacity: 0, y: 4 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.15, ease: "easeOut" }}
-              className="space-y-6"
+              className={cn("max-w-[560px] space-y-6", preview ? "xl:pt-5" : "pt-5")}
             >
               {controls}
             </m.div>
           </div>
 
-          {preview && (
-            <aside className="max-xl:hidden">
-              <div className="sticky top-3">{preview}</div>
-            </aside>
-          )}
+          {preview && <aside className="py-5 pr-5 max-xl:hidden sm:pr-6">{preview}</aside>}
         </div>
       </m.div>
     </main>

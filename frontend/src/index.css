@@ -617,6 +617,9 @@
 }
 
 :root {
+    /* Dock height (bar + gap under it), kept current by Dock.tsx; this is
+       only the first-paint fallback. */
+    --dock-h: 4.5rem;
     --progress-fill: color-mix(in oklab, var(--accent-base) 90%, transparent);
     --hl-bg: color-mix(in oklab, var(--accent-base) 18%, transparent);
     --hl-ring: color-mix(in oklab, var(--accent-base) 45%, transparent);
