@@ -41,6 +41,22 @@ function confirmDelete(v: Voice, activeVoice: string) {
   })
 }
 
+/** Voices bucketed by their engine-assigned `group`, in first-seen order — the
+ *  server already sorts the list, so a Map keyed by group preserves that order
+ *  without a second sort. Shared with the command palette's voice page, which
+ *  shows the same voices under the same headings; only the delete affordance
+ *  below is the combobox's own, because a palette row that can destroy a clone
+ *  on a stray click is not a trade the discovery surface should make. */
+export function useVoiceGroups(voices: Voice[]): [string, Voice[]][] {
+  return useMemo(() => {
+    const m = new Map<string, Voice[]>()
+    voices.forEach((v) => {
+      m.set(v.group, [...(m.get(v.group) ?? []), v])
+    })
+    return [...m.entries()]
+  }, [voices])
+}
+
 /** `dock` renders the trigger as a dock module (ghost, tinted icon, name
  *  hidden on phones, popover opening upward); the default is the outline
  *  combobox the settings page uses. */
@@ -56,14 +72,7 @@ export function VoiceCombobox({
   dock?: boolean
 }) {
   const [open, setOpen] = useState(false)
-
-  const groups = useMemo(() => {
-    const m = new Map<string, Voice[]>()
-    voices.forEach((v) => {
-      m.set(v.group, [...(m.get(v.group) ?? []), v])
-    })
-    return [...m.entries()]
-  }, [voices])
+  const groups = useVoiceGroups(voices)
 
   const selected = voices.find((v) => v.id === voice)
 

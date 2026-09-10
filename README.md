@@ -9,6 +9,12 @@ Local audiobook player for pasted light-novel text. Kokoro-82M / Qwen3-TTS, brow
 Paste a chapter (button in the dock along the bottom, or edit `novel.txt`), press Play.
 
 - Space = play/pause · ←/→ = skip chunk · click any sentence to jump
+- Keyboard: `?` shows the full sheet. `⌘K` opens the command palette (voice and
+  model pages, every action searchable), `⌘,` settings, `⌘P` paste. Each `⌘`
+  combo has a bare-key twin (`k`, `,`, `p`) because Chrome keeps `⌘,` for its own
+  settings and never delivers it to the page. `⇧↑`/`⇧↓` volume (bare arrows keep
+  scrolling), `m` mute, `[`/`]` speed, `v` voice, `e` model — volume and speed
+  changes show a transient readout above the dock.
 - Dock (the only chrome, sketchybar-style, three brackets on a clickable
   chapter-progress rail): left — a level meter that dances while the voice
   reads, Paste chapter, Settings; middle — transport, elapsed / total time,

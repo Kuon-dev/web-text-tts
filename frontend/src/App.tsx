@@ -1,19 +1,62 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { LazyMotion, MotionConfig, domAnimation } from "motion/react"
+import { AdjustHUD } from "@/components/AdjustHUD"
+import { CommandPalette, type PalettePage } from "@/components/CommandPalette"
 import { Dock } from "@/components/dock/Dock"
 import { EngineToasts } from "@/components/EngineToasts"
 import { PasteDialog } from "@/components/PasteDialog"
 import { Reader } from "@/components/Reader"
 import { SettingsPage } from "@/components/settings/SettingsPage"
+import { ShortcutsDialog } from "@/components/ShortcutsDialog"
 import { Toaster } from "@/components/ui/sonner"
+import { matchAction, type KeymapCtx } from "@/lib/keymap"
 import { player } from "@/lib/player"
 import { useReadingPrefs } from "@/lib/reading"
 import { useTheme } from "@/lib/theme"
 import { useView } from "@/lib/view"
 import { useWallpaper, wallpaperFitStyle, wallpaperUrl } from "@/lib/wallpaper"
 
+/**
+ * The one keydown listener, replacing the hand-rolled Space / ←/→ block this
+ * file used to carry. Which shortcuts may fire is two orthogonal questions,
+ * not the single condition it was: a modifier-less key must never fire while
+ * the user is typing (`p` would land in the paste box instead of opening it),
+ * and a reader-scope key must additionally stand down whenever a control has
+ * focus or an overlay is up — that is what keeps Space activating a focused
+ * dock button rather than toggling playback, exactly as before.
+ *
+ * The listener is installed once and reads its inputs through a ref: rebinding
+ * it whenever a dialog opens would be churn for no gain, and the matcher needs
+ * the *current* overlay state, not the state at subscribe time.
+ */
+function useKeymap(ctx: KeymapCtx, overlayOpen: boolean) {
+  const latest = useRef({ ctx, overlayOpen })
+  latest.current = { ctx, overlayOpen }
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null
+      const action = matchAction(e, {
+        textEntry: !!t?.closest("input, textarea, [contenteditable='true']"),
+        controlFocused: !!t?.closest(
+          "button, select, [role='slider'], [role='listbox'], [role='menu'], [role='dialog']",
+        ),
+        overlayOpen: latest.current.overlayOpen,
+      })
+      if (!action) return
+      e.preventDefault()
+      action.run(latest.current.ctx)
+    }
+    document.addEventListener("keydown", onKey)
+    return () => document.removeEventListener("keydown", onKey)
+  }, [])
+}
+
 export default function App() {
   const [pasteOpen, setPasteOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [palettePage, setPalettePage] = useState<PalettePage | null>(null)
+  const [helpOpen, setHelpOpen] = useState(false)
   const { prefs, update } = useReadingPrefs()
   const { theme, dark, update: updateTheme, reset: resetTheme } = useTheme()
   const { wallpaper, upload: uploadWallpaper, remove: removeWallpaper } = useWallpaper()
@@ -56,31 +99,29 @@ export default function App() {
     }
   }, [settingsOpen])
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null
-      if (
-        t &&
-        t.closest(
-          "input, textarea, select, button, [role='dialog'], [role='listbox'], [role='menu'], [role='slider'], [contenteditable='true']",
-        )
-      ) {
-        return
-      }
-      if (e.code === "Space") {
-        e.preventDefault()
-        player.togglePlay()
-      } else if (e.code === "ArrowLeft") {
-        player.jump(player.getSnapshot().idx - 1)
-      } else if (e.code === "ArrowRight") {
-        player.jump(player.getSnapshot().idx + 1)
-      }
-    }
-    document.addEventListener("keydown", onKey)
-    return () => document.removeEventListener("keydown", onKey)
-  }, [])
+  const openPaste = useCallback(() => setPasteOpen(true), [])
 
-  const openPaste = () => setPasteOpen(true)
+  // The settings page is deliberately absent from `overlayOpen`: it is a view,
+  // not an overlay, so Space keeps pausing the voice while fonts are changed.
+  const overlayOpen = pasteOpen || paletteOpen || helpOpen
+
+  const keymapCtx = useMemo<KeymapCtx>(
+    () => ({
+      openPalette: () => {
+        setPalettePage(null)
+        setPaletteOpen(true)
+      },
+      openPalettePage: (page) => {
+        setPalettePage(page)
+        setPaletteOpen(true)
+      },
+      openHelp: () => setHelpOpen(true),
+      openPaste,
+      toggleSettings: () => (settingsOpen ? closeSettings() : openSettings()),
+    }),
+    [openPaste, settingsOpen, closeSettings, openSettings],
+  )
+  useKeymap(keymapCtx, overlayOpen)
 
   return (
     <MotionConfig reducedMotion="user">
@@ -123,6 +164,9 @@ export default function App() {
             onPasteClick={openPaste}
           />
           <PasteDialog open={pasteOpen} onOpenChange={setPasteOpen} />
+          <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} initialPage={palettePage} ctx={keymapCtx} />
+          <ShortcutsDialog open={helpOpen} onOpenChange={setHelpOpen} />
+          <AdjustHUD />
           <EngineToasts />
           {/* Toasts stack above the dock, whatever its height (see --dock-h). */}
           <Toaster

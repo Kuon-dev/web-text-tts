@@ -258,6 +258,132 @@ it("setPause commits pause_ms to the server", async () => {
   expect(JSON.parse(posts[0][1].body)).toEqual({ pause_ms: 750 })
 })
 
+/** Boots the player on a one-sentence doc at a given volume/speed, with an
+ *  /api/state that answers straight away — the nudge tests care about how many
+ *  POSTs land and what is in them, never about racing one. */
+async function bootForNudge(state: { volume?: number; speed?: number } = {}) {
+  vi.resetModules()
+  vi.useFakeTimers()
+  vi.stubGlobal("Audio", FakeAudio)
+  const fetchMock = vi.fn().mockImplementation(async (...args) => {
+    const url = String(args[0])
+    if (url.includes("/api/voices")) return { ok: true, json: async () => ({ voices: [], current: "" }) }
+    if (url.includes("/api/doc")) {
+      return {
+        ok: true,
+        json: async () => ({
+          doc_id: "d1",
+          chunks: [{ id: "c1", text: "One.", para: 0 }],
+          position: 0,
+          voice: "v1",
+          speed: state.speed ?? 1,
+          volume: state.volume ?? 1,
+        }),
+      }
+    }
+    if (url.includes("/api/status")) return { ok: true, json: async () => ({ doc_id: "d1", ready: [], failed: [], blocked: null }) }
+    return { ok: true, json: async () => ({}) }
+  })
+  vi.stubGlobal("fetch", fetchMock)
+  const { player } = await import("./player")
+  player.start()
+  await vi.advanceTimersByTimeAsync(0)
+  fetchMock.mockClear()
+  return { player, states: () => fetchMock.mock.calls.filter((c) => String(c[0]).includes("/api/state")) }
+}
+
+it("nudges the volume a step at a time, snapped onto the slider's grid", async () => {
+  const { player } = await bootForNudge({ volume: 0.72 })
+  player.nudgeVolume(1)
+  // 0.72 is off the 0.05 grid (a drag of the 1%-step dock slider can leave it
+  // anywhere); the first key press lands on the grid rather than 0.77.
+  expect(player.getSnapshot().volume).toBe(0.75)
+  player.nudgeVolume(-1)
+  expect(player.getSnapshot().volume).toBe(0.7)
+})
+
+it("clamps the volume at both ends of the range", async () => {
+  const { player } = await bootForNudge({ volume: 0.98 })
+  player.nudgeVolume(1)
+  expect(player.getSnapshot().volume).toBe(1)
+  player.nudgeVolume(1)
+  expect(player.getSnapshot().volume).toBe(1) // a held key rests at the top
+
+  const quiet = await bootForNudge({ volume: 0.02 })
+  quiet.player.nudgeVolume(-1)
+  expect(quiet.player.getSnapshot().volume).toBe(0)
+  quiet.player.nudgeVolume(-1)
+  expect(quiet.player.getSnapshot().volume).toBe(0)
+})
+
+it("unmutes when the volume key raises the level", async () => {
+  const { player } = await bootForNudge({ volume: 0.5 })
+  player.toggleMute()
+  expect(player.getSnapshot().muted).toBe(true)
+
+  // Reaching for the volume key means "let me hear it", whichever way the
+  // sound was silenced.
+  player.nudgeVolume(1)
+  expect(player.getSnapshot().muted).toBe(false)
+  expect(player.getSnapshot().volume).toBe(0.55)
+})
+
+it("nudges the speed without leaking float noise", async () => {
+  const { player } = await bootForNudge({ speed: 1 })
+  player.nudgeSpeed(1)
+  expect(player.getSnapshot().speed).toBe(1.05)
+  player.nudgeSpeed(1)
+  expect(player.getSnapshot().speed).toBe(1.1) // not 1.1500000000000001 next time round
+})
+
+it("keeps the speed inside the range the dock slider offers", async () => {
+  const { player } = await bootForNudge({ speed: 1.97 })
+  player.nudgeSpeed(1)
+  expect(player.getSnapshot().speed).toBe(2)
+  player.nudgeSpeed(1)
+  expect(player.getSnapshot().speed).toBe(2)
+
+  const slow = await bootForNudge({ speed: 0.8 })
+  slow.player.nudgeSpeed(-1)
+  expect(slow.player.getSnapshot().speed).toBe(0.75)
+  slow.player.nudgeSpeed(-1)
+  expect(slow.player.getSnapshot().speed).toBe(0.75)
+})
+
+it("debounces a held key down to one /api/state commit", async () => {
+  const { player, states } = await bootForNudge({ volume: 0.5 })
+  for (let i = 0; i < 6; i++) player.nudgeVolume(1) // one key repeat each
+
+  await vi.advanceTimersByTimeAsync(399)
+  expect(states().length).toBe(0)
+  await vi.advanceTimersByTimeAsync(1)
+  expect(states().length).toBe(1)
+  // Only where the value came to rest is sent — the six steps on the way
+  // there were the local player's business.
+  expect(JSON.parse(states()[0][1].body)).toEqual({ volume: 0.8 })
+})
+
+it("commits a volume and a speed nudge in one request when they arrive together", async () => {
+  const { player, states } = await bootForNudge({ volume: 0.5, speed: 1 })
+  player.nudgeVolume(1)
+  await vi.advanceTimersByTimeAsync(200)
+  player.nudgeSpeed(-1)
+
+  await vi.advanceTimersByTimeAsync(400)
+  expect(states().length).toBe(1)
+  expect(JSON.parse(states()[0][1].body)).toEqual({ volume: 0.55, speed: 0.95 })
+})
+
+it("shows every nudge on the HUD", async () => {
+  const { player } = await bootForNudge({ volume: 0.5, speed: 1 })
+  const { hud } = await import("./hud") // the player's own instance: same fresh module graph
+
+  player.nudgeVolume(1)
+  expect(hud.getSnapshot()).toMatchObject({ kind: "volume", value: 0.55 })
+  player.nudgeSpeed(1)
+  expect(hud.getSnapshot()).toMatchObject({ kind: "speed", value: 1.05 })
+})
+
 /** Boots the player with a controllable /api/state and /api/status.
  *  `state.resolve` releases the in-flight engine switch; `engineInfo` is what
  *  the next status poll reports. */

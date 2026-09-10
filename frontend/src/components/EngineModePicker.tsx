@@ -37,7 +37,7 @@ function fetchEngines() {
   return enginesPromise
 }
 
-function useEngineCatalog(): EngineEntry[] {
+export function useEngineCatalog(): EngineEntry[] {
   const [engines, setEngines] = useState<EngineEntry[]>([])
   useEffect(() => {
     fetchEngines()

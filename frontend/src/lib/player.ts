@@ -12,6 +12,8 @@ import {
   type Status,
   type Voice,
 } from "./api"
+import { hud } from "./hud"
+import { stepValue } from "./settings"
 import { silentWavUrl } from "./silence"
 
 export interface PlayerSnapshot {
@@ -40,6 +42,16 @@ const RETRY_MS = 2000
 const POLL_MS = 2000
 const SAVE_DEBOUNCE_MS = 300
 
+/** One keyboard nudge of volume or speed. Both share the step, and both match
+ *  the dock sliders in dock/Modules.tsx, so the keys land on the same grid the
+ *  mouse does and the two never disagree about what a legal value is. */
+const NUDGE_STEP = 0.05
+export const SPEED_MIN = 0.75
+export const SPEED_MAX = 2
+/** A key repeat arrives every ~30ms; the server only needs to hear where the
+ *  value came to rest. */
+const NUDGE_COMMIT_MS = 400
+
 /**
  * Owns the <audio> element and all playback state. The generation-token /
  * retry / prefetch flow is ported from the original vanilla player; React
@@ -64,6 +76,10 @@ class PlayerEngine {
   private gapToken = 0
   private gapPrimed = false
   private saveTimer: ReturnType<typeof setTimeout> | undefined
+  private nudgeTimer: ReturnType<typeof setTimeout> | undefined
+  // Which fields a nudge has moved since the last commit; the values are read
+  // off the doc when the timer fires, so only the resting value is ever sent.
+  private nudged = new Set<"volume" | "speed">()
   private voices: Voice[] = []
   private engine: EngineInfo | null = null
   private switchingTo: string | null = null
@@ -340,6 +356,13 @@ class PlayerEngine {
     api("/api/state", { speed: this.doc.speed }).catch(() => {})
   }
 
+  /** Speed ∓0.05× from the keyboard, over the range the dock slider offers. */
+  nudgeSpeed(direction: 1 | -1) {
+    this.setSpeed(stepValue(this.doc.speed, NUDGE_STEP, direction, SPEED_MIN, SPEED_MAX))
+    hud.show("speed", this.doc.speed)
+    this.commitNudge("speed")
+  }
+
   setVolume(v: number) {
     this.doc.volume = Math.max(0, Math.min(1, v))
     this.audio.volume = this.doc.volume
@@ -349,6 +372,32 @@ class PlayerEngine {
 
   commitVolume() {
     api("/api/state", { volume: this.doc.volume }).catch(() => {})
+  }
+
+  /** Volume ±5% from the keyboard. Raising it while muted unmutes, because
+   *  setVolume unmutes for any value above zero — a listener reaching for the
+   *  volume key means "let me hear it", whichever way they silenced it. */
+  nudgeVolume(direction: 1 | -1) {
+    this.setVolume(stepValue(this.doc.volume ?? 1, NUDGE_STEP, direction, 0, 1))
+    hud.show("volume", this.doc.volume ?? 1)
+    this.commitNudge("volume")
+  }
+
+  /** Persist a nudged value once the ramp settles. Un-debounced, a two-second
+   *  hold of Shift+↑ would queue some sixty POSTs, each one a round trip that
+   *  can outlive the key press it describes and land out of order. Volume and
+   *  speed share the one timer and travel in one body — /api/state takes a
+   *  partial patch — so a hand moving from volume to speed costs one request. */
+  private commitNudge(field: "volume" | "speed") {
+    this.nudged.add(field)
+    clearTimeout(this.nudgeTimer)
+    this.nudgeTimer = setTimeout(() => {
+      const body: { volume?: number; speed?: number } = {}
+      if (this.nudged.has("volume")) body.volume = this.doc.volume ?? 1
+      if (this.nudged.has("speed")) body.speed = this.doc.speed
+      this.nudged.clear()
+      api("/api/state", body).catch(() => {})
+    }, NUDGE_COMMIT_MS)
   }
 
   setPause(ms: number) {
