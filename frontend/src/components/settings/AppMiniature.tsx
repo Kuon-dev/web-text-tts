@@ -52,14 +52,8 @@ export function AppMiniature({ prefs, theme, dark, wallpaper, caption }: Props) 
             }}
           />
         )}
-        {/* top bar */}
-        <div className="absolute inset-x-[4%] top-[4%] flex h-[9%] items-center gap-[2%] rounded-[3px] border bg-card/80 px-[2.5%]">
-          <span className="aspect-square w-[2.2%] rounded-[1px] bg-(--accent-base)" />
-          <span className="h-[3px] w-[16%] rounded-full bg-foreground/60" />
-          <span className="ml-auto h-[45%] w-[12%] rounded-[2px] bg-primary" />
-        </div>
         {/* reader tile — the focused window while the voice reads */}
-        <div className="absolute inset-x-[16%] top-[17%] bottom-[19%] rounded-[4px] border border-(--focus-border) bg-card/85 px-[5%] py-[5%] shadow-[0_0_18px_-4px_var(--focus-glow)]">
+        <div className="absolute inset-x-[16%] top-[4%] bottom-[19%] rounded-[4px] border border-(--focus-border) bg-card/85 px-[5%] py-[5%] shadow-[0_0_18px_-4px_var(--focus-glow)]">
           <div className="flex h-full flex-col justify-center space-y-[4%]">
             {LINES.map((w, i) =>
               w === null ? (
@@ -74,10 +68,25 @@ export function AppMiniature({ prefs, theme, dark, wallpaper, caption }: Props) 
             )}
           </div>
         </div>
-        {/* player bar */}
+        {/* dock: three brackets on the progress rail */}
         <div className="absolute inset-x-[4%] bottom-[4%] h-[11%] overflow-hidden rounded-[3px] border bg-card/85">
           <div className="h-[2px] w-[40%] bg-(--progress-fill)" />
-          <span className="absolute top-1/2 left-1/2 aspect-square w-[5%] -translate-x-1/2 -translate-y-1/2 rounded-[2px] bg-primary" />
+          <div className="absolute inset-x-[1.5%] top-[2px] bottom-0 flex items-center justify-between">
+            <span className="flex h-[64%] w-[17%] items-center gap-[6%] rounded-[2px] border border-border/70 bg-background/50 px-[5%]">
+              <span className="h-[55%] w-[1.5px] rounded-[1px] bg-(--accent-base)" />
+              <span className="h-[3px] w-[35%] rounded-full bg-foreground/50" />
+            </span>
+            <span className="flex h-[64%] w-[13%] items-center justify-center rounded-[2px] border border-border/70 bg-background/50">
+              <span className="aspect-square h-[62%] rounded-[1.5px] bg-primary" />
+            </span>
+            <span className="flex h-[64%] w-[32%] items-center justify-around rounded-[2px] border border-border/70 bg-background/50 px-[3%]">
+              <span className="aspect-square h-[36%] rounded-full bg-(--mod-voice)" />
+              <span className="aspect-square h-[36%] rounded-full bg-(--mod-engine)" />
+              <span className="aspect-square h-[36%] rounded-full bg-(--mod-volume)" />
+              <span className="aspect-square h-[36%] rounded-full bg-(--mod-speed)" />
+              <span className="aspect-square h-[36%] rounded-full bg-(--mod-clock)" />
+            </span>
+          </div>
         </div>
       </div>
       <p className="font-mono text-[11px] tabular-nums text-muted-foreground">{text}</p>

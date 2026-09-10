@@ -107,7 +107,7 @@ export function AppearanceSection({ prefs, update, theme, dark, updateTheme, res
         unit="%"
         onChange={(v) => update({ uiScale: v / 100 })}
       />
-      <SwitchRow id="pref-clock" label="Show clock" description="In the top bar." checked={prefs.showClock} onChange={(showClock) => update({ showClock })} />
+      <SwitchRow id="pref-clock" label="Show clock" description="At the right end of the dock." checked={prefs.showClock} onChange={(showClock) => update({ showClock })} />
     </>
   )
 }

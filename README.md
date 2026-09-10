@@ -6,11 +6,15 @@ Local audiobook player for pasted light-novel text. Kokoro-82M / Qwen3-TTS, brow
 
     bash start.sh          # then open http://localhost:8765 in your Windows browser
 
-Paste a chapter (button top right, or edit `novel.txt`), press Play.
+Paste a chapter (button in the dock along the bottom, or edit `novel.txt`), press Play.
 
 - Space = play/pause · ←/→ = skip chunk · click any sentence to jump
-- Bottom player bar: searchable voice combobox (grouped by engine/language),
-  transport, volume + mute, speed popover (with pause-between-sentences slider), clickable chapter-progress strip
+- Dock (the only chrome, sketchybar-style, three brackets on a clickable
+  chapter-progress rail): left — a level meter that dances while the voice
+  reads, Paste chapter, Settings; middle — transport, elapsed / total time,
+  sentence counter; right — searchable voice combobox (grouped by
+  engine/language), engine, volume + mute, speed popover (with
+  pause-between-sentences slider), clock
 - Engine picker (settings): **Kokoro-82M** (default, 16 voices; falls back to CPU
   under GPU contention) or **Qwen3-TTS 1.7B** (9 preset speakers incl. native
   Japanese, GPU-only; pauses generation when GPU is busy — playback waits, UI
@@ -19,7 +23,7 @@ Paste a chapter (button top right, or edit `novel.txt`), press Play.
   chunk being generated) and the model load that follows it, tens of seconds off
   disk and minutes on a first download — on the engine card, in the player bar,
   and with a toast when the new engine is ready.
-- Settings (top right, also `#settings` in the URL): a page in place of the reader
+- Settings (in the dock, also `#settings` in the URL): a page in place of the reader
   with a live preview — theme / palette / accent, reading font (18 faces, listed
   in their own face), size, line & paragraph spacing, text width, justify,
   auto-scroll, wallpaper fit / position / opacity, narrator and engine. Saved in

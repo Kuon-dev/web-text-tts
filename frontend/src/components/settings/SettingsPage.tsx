@@ -134,7 +134,7 @@ export function SettingsPage(props: SettingsPageProps) {
             {/* Below xl the preview rides on top of the controls; the wrapper
                 carries the tile background so controls scroll under it cleanly. */}
             {preview && (
-              <div className="sticky top-13 z-10 -mx-5 -mt-4 mb-6 bg-card/85 px-5 pt-4 pb-4 backdrop-blur-sm sm:-mx-6 sm:px-6 xl:hidden">
+              <div className="sticky top-2 z-10 sm:top-3 -mx-5 -mt-4 mb-6 bg-card/85 px-5 pt-4 pb-4 backdrop-blur-sm sm:-mx-6 sm:px-6 xl:hidden">
                 {preview}
               </div>
             )}
@@ -151,7 +151,7 @@ export function SettingsPage(props: SettingsPageProps) {
 
           {preview && (
             <aside className="max-xl:hidden">
-              <div className="sticky top-17">{preview}</div>
+              <div className="sticky top-3">{preview}</div>
             </aside>
           )}
         </div>

@@ -1,11 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { LazyMotion, MotionConfig, domAnimation } from "motion/react"
 import { Toaster, toast } from "sonner"
+import { Dock } from "@/components/dock/Dock"
 import { PasteDialog } from "@/components/PasteDialog"
-import { PlayerBar } from "@/components/PlayerBar"
 import { Reader } from "@/components/Reader"
 import { SettingsPage } from "@/components/settings/SettingsPage"
-import { TopBar } from "@/components/TopBar"
 import { player } from "@/lib/player"
 import { useReadingPrefs } from "@/lib/reading"
 import { useTheme } from "@/lib/theme"
@@ -103,12 +102,6 @@ export default function App() {
               }}
             />
           )}
-          <TopBar
-            showClock={prefs.showClock}
-            settingsOpen={settingsOpen}
-            onSettingsClick={() => (settingsOpen ? closeSettings() : openSettings())}
-            onPasteClick={openPaste}
-          />
           {view.view === "settings" ? (
             <SettingsPage
               section={view.section}
@@ -127,7 +120,12 @@ export default function App() {
           ) : (
             <Reader prefs={prefs} onPasteClick={openPaste} />
           )}
-          <PlayerBar />
+          <Dock
+            showClock={prefs.showClock}
+            settingsOpen={settingsOpen}
+            onSettingsClick={() => (settingsOpen ? closeSettings() : openSettings())}
+            onPasteClick={openPaste}
+          />
           <PasteDialog open={pasteOpen} onOpenChange={setPasteOpen} />
           <Toaster theme={dark ? "dark" : "light"} position="bottom-right" offset={{ bottom: Math.round(88 * prefs.uiScale) }} />
         </div>

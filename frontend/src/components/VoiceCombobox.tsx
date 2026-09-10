@@ -41,7 +41,20 @@ function confirmDelete(v: Voice, activeVoice: string) {
   })
 }
 
-export function VoiceCombobox({ voice, voices, className }: { voice: string; voices: Voice[]; className?: string }) {
+/** `dock` renders the trigger as a dock module (ghost, tinted icon, name
+ *  hidden on phones, popover opening upward); the default is the outline
+ *  combobox the settings page uses. */
+export function VoiceCombobox({
+  voice,
+  voices,
+  className,
+  dock = false,
+}: {
+  voice: string
+  voices: Voice[]
+  className?: string
+  dock?: boolean
+}) {
   const [open, setOpen] = useState(false)
 
   const groups = useMemo(() => {
@@ -65,22 +78,23 @@ export function VoiceCombobox({ voice, voices, className }: { voice: string; voi
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button
-          variant="outline"
+          variant={dock ? "ghost" : "outline"}
           size="sm"
           role="combobox"
           aria-expanded={open}
           aria-label="Narrator voice"
           title="Narrator voice"
-          className={cn("w-48 justify-between font-normal", className)}
+          className={cn(dock ? "max-w-36 font-normal max-md:w-7 max-md:px-0" : "w-48 justify-between font-normal", className)}
         >
           <span className="flex min-w-0 items-center gap-2">
-            <MicVocal className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-            <span className="truncate">{selected ? voiceLabel(selected) : "Voice"}</span>
+            <MicVocal className={cn("size-3.5 shrink-0", dock ? "text-(--mod-voice)" : "text-muted-foreground")} aria-hidden />
+            {/* The dock shows the narrator's name alone; the language lives in the list. */}
+            <span className={cn("truncate", dock && "max-md:hidden")}>{selected ? (dock ? selected.name : voiceLabel(selected)) : "Voice"}</span>
           </span>
-          <ChevronsUpDown className="size-3.5 shrink-0 opacity-50" aria-hidden />
+          <ChevronsUpDown className={cn("size-3.5 shrink-0 opacity-50", dock && "max-md:hidden")} aria-hidden />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-56 p-0">
+      <PopoverContent side={dock ? "top" : undefined} align="start" className="w-56 p-0">
         <Command>
           <CommandInput placeholder="Search voices…" />
           <CommandList>

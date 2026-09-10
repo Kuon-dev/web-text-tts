@@ -3,7 +3,7 @@ import { animate, motionValue } from "motion"
 import type { AnimationPlaybackControls } from "motion"
 
 /** Fraction of the viewport height where the current sentence settles —
- *  slightly above center to sit between the top bar and the player bar. */
+ *  slightly above center, so it sits well clear of the dock at the bottom. */
 const READING_LINE = 0.42
 
 /**

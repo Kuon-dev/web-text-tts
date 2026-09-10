@@ -603,6 +603,19 @@
 [data-accent="amber"]   { --accent-base: var(--ac-amber); }
 [data-accent="sky"]     { --accent-base: var(--ac-blue); }
 
+/* Dock module tints — sketchybar's convention of one ramp colour per
+   module, drawn from the active scheme so a palette switch recolours the
+   whole bar coherently. Mixed toward the foreground so they read as tints
+   on a 14px icon, not as a rainbow; the user's --accent-base stays reserved
+   for playback state (meter, progress, the reader's focus glow). */
+:root {
+    --mod-voice: color-mix(in oklab, var(--ac-violet) 78%, var(--foreground));
+    --mod-engine: color-mix(in oklab, var(--ac-amber) 78%, var(--foreground));
+    --mod-volume: color-mix(in oklab, var(--ac-green) 78%, var(--foreground));
+    --mod-speed: color-mix(in oklab, var(--ac-rose) 78%, var(--foreground));
+    --mod-clock: color-mix(in oklab, var(--ac-blue) 78%, var(--foreground));
+}
+
 :root {
     --progress-fill: color-mix(in oklab, var(--accent-base) 90%, transparent);
     --hl-bg: color-mix(in oklab, var(--accent-base) 18%, transparent);

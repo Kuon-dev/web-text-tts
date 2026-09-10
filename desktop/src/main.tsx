@@ -20,8 +20,8 @@ declare global {
 window.__flushPosition = () => player.flushPosition()
 
 installDesktopGlue(() => {
-  // App.tsx opens the paste dialog from its own state; the top-bar button is
-  // the single entry point, so click it rather than duplicating that state.
+  // App.tsx opens the paste dialog from its own state; the dock's Paste button
+  // is the single entry point, so click it rather than duplicating that state.
   document.querySelector<HTMLButtonElement>("[data-paste-trigger]")?.click()
 })
 
