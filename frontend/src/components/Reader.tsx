@@ -131,15 +131,15 @@ export function Reader({ prefs, onPasteClick }: Props) {
               id={`c${i}`}
               onClick={() => player.clickChunk(i)}
               className={cn(
-                "cursor-pointer rounded-sm box-decoration-clone px-0.5 transition-[background-color,color,box-shadow]",
-                i === prevIdx && i !== idx ? "hl-leave" : "duration-200",
+                "rd-chunk cursor-pointer rounded-sm box-decoration-clone px-0.5",
+                i === prevIdx && i !== idx && "hl-leave",
                 i === idx
                   ? cn("hl-current text-foreground", !ready.has(chunk.id) && !failed.has(chunk.id) && "hl-buffering")
                   : failed.has(chunk.id)
-                    ? "text-destructive underline decoration-dotted underline-offset-4 hover:bg-accent/50"
+                    ? "text-destructive underline decoration-dotted underline-offset-4"
                     : ready.has(chunk.id)
-                      ? "text-foreground/85 hover:bg-accent/50"
-                      : "text-muted-foreground/70 hover:bg-accent/50",
+                      ? "text-foreground/85"
+                      : "text-muted-foreground/70",
               )}
             >
               {chunk.text + " "}

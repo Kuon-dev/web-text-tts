@@ -28,7 +28,7 @@ export function ReadingPreview({ prefs, hoverFont }: { prefs: ReadingPrefs; hove
           counted the carriages as they slid past — seven, eight — and only then let herself breathe.
         </p>
         <p>
-          <span className="hl-current rounded-sm box-decoration-clone px-0.5">
+          <span className="rd-chunk hl-current rounded-sm box-decoration-clone px-0.5">
             “You’re late,” said the man in the grey coat, not unkindly.
           </span>{" "}
           <em>So are you</em>, she thought, and said nothing.

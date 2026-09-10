@@ -646,33 +646,74 @@ html {
     animation-duration: 300ms;
 }
 
-/* Focused-sentence highlight (Reader). Plain CSS, not utilities, so the
-   settle-in keyframes can animate box-shadow without fighting Tailwind's
-   ring variables. Fade-out on the leaving sentence is handled by the
-   span's transition classes. */
-.hl-current {
-    background-color: var(--hl-bg);
-    box-shadow: 0 0 0 1px var(--hl-ring);
+/* Reader sentence tints (hover, focus, the fading wake). Painted as an
+   explicit band rather than as the span's own background-color: a span's
+   background covers the font's whole ascent+descent box, which owes nothing
+   to line-height — 1.00em for Newsreader but 1.64em for Charis SIL — so at
+   tight line spacing the tint on one row reached into its neighbours and the
+   rings of a wrapped sentence collided. The band is the shorter of that box
+   and the line itself, so it can never touch the row above or below.
+
+   Three gradient layers stand in for what background-color plus a ring used
+   to do: the hairlines that ring the band (across, then down), then the fill.
+   Colours ride on registered custom properties so they still animate. */
+@property --rd-fill {
+    syntax: "<color>";
+    inherits: false;
+    initial-value: transparent;
+}
+@property --rd-edge {
+    syntax: "<color>";
+    inherits: false;
+    initial-value: transparent;
+}
+
+.rd-chunk {
+    /* 0.18em of clear air under the band. It sits at 85% of the slack rather
+       than centred, because the height most faces carry over the line is
+       ascent — padding for accents no Latin lowercase reaches — so centring
+       would ride up off the glyphs and clip the descenders. */
+    --rd-band: min(100%, calc(1lh - 0.18em));
+    background-image:
+        linear-gradient(var(--rd-edge) 1px, transparent 1px calc(100% - 1px), var(--rd-edge) calc(100% - 1px)),
+        linear-gradient(to right, var(--rd-edge) 1px, transparent 1px calc(100% - 1px), var(--rd-edge) calc(100% - 1px)),
+        linear-gradient(var(--rd-fill), var(--rd-fill));
+    background-repeat: no-repeat;
+    background-size: 100% var(--rd-band);
+    background-position: 0 85%;
+    transition:
+        --rd-fill 200ms,
+        --rd-edge 200ms,
+        color 200ms;
+}
+.rd-chunk:hover {
+    --rd-fill: color-mix(in oklab, var(--accent) 50%, transparent);
+}
+
+/* Focused sentence. */
+.rd-chunk.hl-current {
+    --rd-fill: var(--hl-bg);
+    --rd-edge: var(--hl-ring);
     animation: hl-in 300ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 /* Audio for the focused sentence is still generating — settle, then pulse. */
-.hl-current.hl-buffering {
+.rd-chunk.hl-current.hl-buffering {
     animation:
         hl-in 300ms cubic-bezier(0.22, 1, 0.36, 1),
         hl-pulse 1.8s ease-in-out 300ms infinite;
 }
-/* The sentence the voice just left: the ring must vanish fast so only ONE
-   row ever reads as current; the background tint trails as a subtle wake. */
-.hl-leave {
+/* The sentence the voice just left: the hairlines must vanish fast so only
+   ONE row ever reads as current; the fill trails as a subtle wake. */
+.rd-chunk.hl-leave {
     transition:
-        background-color 450ms ease-out,
+        --rd-fill 450ms ease-out,
         color 450ms ease-out,
-        box-shadow 120ms ease-out;
+        --rd-edge 120ms ease-out;
 }
 @keyframes hl-in {
     from {
-        background-color: transparent;
-        box-shadow: 0 0 0 5px transparent;
+        --rd-fill: transparent;
+        --rd-edge: transparent;
     }
 }
 @keyframes hl-pulse {
@@ -681,8 +722,8 @@ html {
     }
 }
 @media (prefers-reduced-motion: reduce) {
-    .hl-current,
-    .hl-current.hl-buffering {
+    .rd-chunk.hl-current,
+    .rd-chunk.hl-current.hl-buffering {
         animation: none;
     }
 }
