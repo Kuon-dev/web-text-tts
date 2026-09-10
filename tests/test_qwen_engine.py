@@ -7,7 +7,7 @@ import pytest
 
 @pytest.fixture()
 def fake_qwen(monkeypatch):
-    calls = {"loaded": [], "custom": [], "clone": [], "caps": []}
+    calls = {"loaded": [], "custom": [], "clone": [], "caps": [], "sampling": []}
 
     class FakeModel:
         @classmethod
@@ -16,15 +16,18 @@ def fake_qwen(monkeypatch):
             return cls()
 
         def generate_custom_voice(self, *, text, language, speaker, instruct=None,
-                                  max_new_tokens=None):
+                                  max_new_tokens=None, **kw):
             calls["custom"].append((text, language, speaker, instruct))
             calls["caps"].append(max_new_tokens)
+            calls["sampling"].append(kw)
             n = len(text) if isinstance(text, list) else 1
             return [np.zeros(24000, dtype=np.float32) for _ in range(n)], 24000
 
-        def generate_voice_clone(self, *, text, ref_audio, language, max_new_tokens=None):
+        def generate_voice_clone(self, *, text, ref_audio, language,
+                                 max_new_tokens=None, **kw):
             calls["clone"].append((text, ref_audio, language))
             calls["caps"].append(max_new_tokens)
+            calls["sampling"].append(kw)
             return [np.zeros(24000, dtype=np.float32)], 24000
 
     mod = types.ModuleType("qwen_tts")
@@ -197,3 +200,68 @@ def test_switching_variant_reports_loading_again(fake_qwen, tmp_path):
 
     assert seen[0] is True                          # base variant is a real load
     assert e.info()["loading"] is False
+
+
+# --- sampling knobs (2026-09-10) -------------------------------------------
+# The library ships do_sample=True at temperature 0.9 / top_p 1.0 and the engine
+# used to pass only max_new_tokens, so every take inherited that. These pin it a
+# notch narrower. On its own that only clipped the extreme tail (takes under
+# 0.35 voiced: 4.8% -> 0%) and did not move the distribution (median delta
+# -0.002, p=0.90) - the whispering was fixed by rewording the instruct, not
+# here. See the comment on QWEN_TEMPERATURE for both measurements. What these
+# tests guard is that the knobs reach every generate path and that retuning them
+# re-rolls the cache, so the next person to try a value gets a clean read.
+
+def test_preset_calls_pin_the_sampling_knobs(fake_qwen, tmp_path):
+    from tts.qwen import QWEN_TEMPERATURE, QWEN_TOP_P
+    e = make_engine(fake_qwen, tmp_path)
+
+    e.synthesize("Hello there.", "Ryan")
+
+    assert fake_qwen["sampling"] == [dict(
+        temperature=QWEN_TEMPERATURE, top_p=QWEN_TOP_P,
+        subtalker_temperature=QWEN_TEMPERATURE, subtalker_top_p=QWEN_TOP_P)]
+
+
+def test_preset_batches_pin_the_sampling_knobs(fake_qwen, tmp_path):
+    from tts.qwen import QWEN_TEMPERATURE, QWEN_TOP_P
+    e = make_engine(fake_qwen, tmp_path)
+
+    e.synthesize_many(["one.", "two.", "three."], "Ryan")
+
+    assert len(fake_qwen["sampling"]) == 1                 # still one batched call
+    assert fake_qwen["sampling"][0]["temperature"] == QWEN_TEMPERATURE
+    assert fake_qwen["sampling"][0]["subtalker_top_p"] == QWEN_TOP_P
+
+
+def test_clone_calls_pin_the_sampling_knobs(fake_qwen, tmp_path):
+    import tests.test_voices as tv
+    from tts.qwen import QWEN_TEMPERATURE, QWEN_TOP_P
+    e = make_engine(fake_qwen, tmp_path)
+    voice = e._clones.add(tv.clip_bytes(), name="Narrator A")
+
+    e.synthesize("Cloned line.", voice.id)
+
+    assert fake_qwen["sampling"] == [dict(
+        temperature=QWEN_TEMPERATURE, top_p=QWEN_TOP_P,
+        subtalker_temperature=QWEN_TEMPERATURE, subtalker_top_p=QWEN_TOP_P)]
+
+
+def test_sampling_knobs_are_narrower_than_the_library_defaults():
+    from tts.qwen import QWEN_TEMPERATURE, QWEN_TOP_P
+    assert QWEN_TEMPERATURE < 0.9 and QWEN_TOP_P < 1.0
+
+
+def test_fingerprint_covers_the_sampling_knobs(fake_qwen, tmp_path, monkeypatch):
+    # Without this, retuning the sampler would leave every whispered take that
+    # is already in cache/ playing back unchanged.
+    import tests.test_voices as tv
+    import tts.qwen as q
+    e = make_engine(fake_qwen, tmp_path)
+    clone = e._clones.add(tv.clip_bytes(), name="A")
+    preset_before, clone_before = e.fingerprint("Ryan"), e.fingerprint(clone.id)
+
+    monkeypatch.setattr(q, "QWEN_TEMPERATURE", q.QWEN_TEMPERATURE - 0.05)
+
+    assert e.fingerprint("Ryan") != preset_before
+    assert e.fingerprint(clone.id) != clone_before

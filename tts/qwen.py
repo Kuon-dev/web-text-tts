@@ -7,6 +7,14 @@ the 0.6B it honours the instruct field, so a "calm narration" instruction can
 steer the sighs and laughs out. Cost: 3.9GB of weights instead of 2.0GB and a
 44s instead of 22s cold load.
 
+The instruct field steers, but only as a prior - it lands in the talker as a
+style description, not as an instruction it can negate. Phrase it for the
+delivery you want, never against the one you don't: "no whispering" measured
+inert, while describing a projected, fully-voiced read moved the whole
+distribution (see QWEN_TEMPERATURE for the numbers). Its adjectives are load
+bearing in both directions - "calm" and "neutral" are themselves softness
+priors, and were part of what made this novel whisper.
+
 GPU-only: ~0.2-0.3x realtime on CPU is unusable, so DevicePolicy(allow_cpu=False)
 pauses (EngineUnavailable) instead of falling back when the GPU is contended.
 Thresholds differ from Kokoro's: anything under QWEN_MIN_SPEED can't keep up
@@ -65,6 +73,31 @@ QWEN_MIN_FREE_BYTES = 4_500_000_000   # 1.7B bf16 weights (3.9GB) + KV headroom
 # the 0.6B: one 0.3s overrun, no 13s+ take), but the guard stays as insurance.
 QWEN_FRAMES_PER_SECOND = 12.5     # 12Hz tokenizer family: 12.5 frames/s per model card
 QWEN_OVERRUN_FACTOR = 1.6         # 1.6x the 15 chars/s estimate + the 2s floor
+# Sampling (2026-09-10). The library's generate_config.json ships do_sample=True
+# at temperature 0.9 / top_p 1.0, and this engine used to pass only
+# max_new_tokens, so every take inherited that. These are pinned a notch
+# narrower, but be honest about what that bought: measured paired over 62
+# identical chunks (same voice, same instruct), narrowing the sampler did NOT
+# move the distribution - median voiced-fraction delta -0.002, better on 30/62,
+# sign test p=0.90. It only clipped the extreme tail (takes under 0.35 voiced:
+# 4.8% -> 0%, i.e. 3 takes of 62), which is why it is kept and why it is not
+# the thing to reach for first.
+#
+# What actually fixed the whispering was the wording of the instruct, held at
+# this same sampler: "Calm, even narration. Neutral tone, no laughing or
+# sighing or whispering" -> "Clear, steady audiobook narration at a full
+# projected speaking volume, fully voiced throughout" moved the median voiced
+# fraction +0.052, better on 52 of 62 chunks, p < 0.0001, and lifted p10 from
+# 0.589 to 0.704. The negation clause was inert on its own (adding "or
+# whispering" to the old string: median -0.017, p=0.128); the win came from
+# dropping "calm"/"neutral" and describing a projected read instead.
+#
+# Tuning caveat: going lower trades the emotive tail for a monotone one, and
+# very low temperatures make an autoregressive decoder more loop-prone. At 0.7
+# the runaway rate was unchanged (4 in the 5min after vs 4 in the 4min before,
+# with smaller overruns), but watch the "runaway:" warnings after any retune.
+QWEN_TEMPERATURE = 0.7
+QWEN_TOP_P = 0.9
 _MODELS = {"custom": "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
            "base": "Qwen/Qwen3-TTS-12Hz-1.7B-Base"}
 
@@ -110,10 +143,27 @@ class Qwen3Engine(TTSEngine):
             out += self._clones.voices()
         return out
 
+    @staticmethod
+    def _sampling() -> dict:
+        """Generation knobs pinned on every call; read at call time so a retune
+        of the module constants moves the fingerprint with them."""
+        return {"temperature": QWEN_TEMPERATURE, "top_p": QWEN_TOP_P,
+                "subtalker_temperature": QWEN_TEMPERATURE,
+                "subtalker_top_p": QWEN_TOP_P}
+
+    @classmethod
+    def _sampling_tag(cls) -> str:
+        return "\x00".join(f"{k}={v}" for k, v in sorted(cls._sampling().items()))
+
     def fingerprint(self, voice_id: str) -> str:
+        # The sampler is part of the cache key: retuning it has to re-roll the
+        # takes already on disk, or the whispered ones keep playing back.
+        tag = self._sampling_tag()
         if voice_id.startswith("clone:"):
-            return "base-1.7b\x00" + self._clones.fingerprint(voice_id)
-        return "custom-1.7b\x00" + hashlib.sha1(self._instruct.encode()).hexdigest()
+            return ("base-1.7b\x00" + self._clones.fingerprint(voice_id) + "\x00"
+                    + hashlib.sha1(tag.encode()).hexdigest())
+        return "custom-1.7b\x00" + hashlib.sha1(
+            (self._instruct + "\x00" + tag).encode()).hexdigest()
 
     def _load(self, variant: str):
         if self._variant == variant:
@@ -156,7 +206,7 @@ class Qwen3Engine(TTSEngine):
         wavs, sr = model.generate_custom_voice(
             text=list(texts), language=_PRESET_LANG.get(voice, "Auto"),
             speaker=voice, instruct=self._instruct or None,
-            max_new_tokens=self._cap(max_seconds))
+            max_new_tokens=self._cap(max_seconds), **self._sampling())
         self.sample_rate = sr
         return [np.asarray(w, dtype=np.float32) for w in wavs]
 
@@ -167,12 +217,14 @@ class Qwen3Engine(TTSEngine):
             model = self._load("base")
             wavs, sr = model.generate_voice_clone(          # signature per bench addendum
                 text=text, ref_audio=str(self._clones.ref_path(voice)),
-                language="Auto", max_new_tokens=self._cap(max_seconds))
+                language="Auto", max_new_tokens=self._cap(max_seconds),
+                **self._sampling())
         else:
             model = self._load("custom")
             wavs, sr = model.generate_custom_voice(
                 text=text, language=_PRESET_LANG.get(voice, "Auto"), speaker=voice,
-                instruct=self._instruct or None, max_new_tokens=self._cap(max_seconds))
+                instruct=self._instruct or None, max_new_tokens=self._cap(max_seconds),
+                **self._sampling())
         self.sample_rate = sr
         return np.asarray(wavs[0], dtype=np.float32)
 
