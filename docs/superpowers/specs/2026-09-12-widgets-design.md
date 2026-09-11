@@ -328,7 +328,7 @@ no toast and no playback change on restore.
   subscription is dropped on pause, idle, and dispose. Each tick bumps `tick`
   (so the face re-renders) and calls `advance`.
 - On `entered === "short" | "long"`: `host.playback.pause()` if
-  `config.pauseOnBreak`, and a toast — `Short break — 5:00` /
+  `config.pauseOnBreak`, and a toast — `Short break — 05:00` /
   `Long break — 15:00` (the configured minutes) — with the stable id
   `"pomodoro"`, so successive phases replace rather than stack.
 - On `entered === "work"`: `Back to work — 25:00` under the same id, with an
