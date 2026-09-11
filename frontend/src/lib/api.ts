@@ -1,3 +1,5 @@
+import type { Mark } from "./bookmarks"
+
 export interface Chunk {
   id: string
   text: string
@@ -22,6 +24,7 @@ export interface Doc {
   pause_ms?: number
   instruct?: string
   images?: ImageRef[]
+  bookmarks?: Mark[]
 }
 
 export type DeviceMode = "auto" | "gpu" | "cpu"

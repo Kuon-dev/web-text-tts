@@ -12,6 +12,7 @@ import {
   type Status,
   type Voice,
 } from "./api"
+import { dropStale, indexSet, nextAfter, prevBefore, toggle, type Mark } from "./bookmarks"
 import { hud } from "./hud"
 import { stepValue } from "./settings"
 import { silentWavUrl } from "./silence"
@@ -32,6 +33,13 @@ export interface PlayerSnapshot {
   voice: string
   voices: Voice[]
   instruct: string
+  /** Marks in this chapter, in reading order — the palette lists these. */
+  bookmarks: readonly Mark[]
+  /** The same marks as positions. Carried separately, and kept in step with
+   *  `bookmarks` by the engine, because the reader probes it once per sentence
+   *  span across a ~10k-span tree that re-renders on every status poll —
+   *  deriving a Set per render there is exactly the cost this avoids. */
+  bookmarkSet: ReadonlySet<number>
   engine: EngineInfo | null
   /** engine id whose POST /api/state is still in flight, else null */
   switchingTo: string | null
@@ -66,6 +74,8 @@ class PlayerEngine {
   private gap = new Audio()
   private doc: Doc = { doc_id: "", chunks: [], position: 0, voice: "", speed: 1, volume: 1 }
   private idx = 0
+  private marks: readonly Mark[] = []
+  private markSet: ReadonlySet<number> = new Set()
   private playing = false
   private ready = new Set<string>()
   private failed = new Set<string>()
@@ -135,6 +145,8 @@ class PlayerEngine {
       voice: this.doc.voice,
       voices: this.voices,
       instruct: this.doc.instruct ?? "",
+      bookmarks: this.marks,
+      bookmarkSet: this.markSet,
       engine: this.engine,
       switchingTo: this.switchingTo,
       blocked: this.blocked,
@@ -168,6 +180,7 @@ class PlayerEngine {
   private async loadDoc(fresh?: Doc) {
     this.doc = fresh ?? (await api<Doc>("/api/doc"))
     this.idx = Math.min(this.doc.position, Math.max(this.doc.chunks.length - 1, 0))
+    this.setMarks(dropStale(this.doc.bookmarks ?? [], this.doc.chunks))
     this.failed = new Set()
     this.ready = new Set()
     this.durations = {}
@@ -324,6 +337,30 @@ class PlayerEngine {
     const chunk = this.doc.chunks[i]
     if (chunk) this.failed.delete(chunk.id)
     this.jump(i)
+  }
+
+  /** Mark (or unmark) the sentence the voice is on. */
+  toggleBookmark() {
+    const chunk = this.doc.chunks[this.idx]
+    if (!chunk) return
+    this.setMarks(toggle(this.marks, this.idx, chunk.text))
+    this.emit()
+    this.saveBookmarks()
+  }
+
+  nextBookmark() {
+    const i = nextAfter(this.marks, this.idx)
+    if (i !== null) this.jump(i)
+  }
+
+  prevBookmark() {
+    const i = prevBefore(this.marks, this.idx)
+    if (i !== null) this.jump(i)
+  }
+
+  private setMarks(marks: readonly Mark[]) {
+    this.marks = marks
+    this.markSet = indexSet(marks)
   }
 
   togglePlay() {
@@ -566,6 +603,21 @@ class PlayerEngine {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ position: this.idx }),
+      keepalive: true,
+    }).catch(() => {})
+  }
+
+  /** Persist the marks. Not debounced, unlike savePosition: a toggle is a
+   *  discrete action rather than a moving value, so a debounce would only add
+   *  a window in which the mark can be lost. The request is whole-list and
+   *  idempotent, so repeated presses converge. `keepalive` for the same reason
+   *  the position save uses it — WKWebView and WebView2 do not reliably run
+   *  beforeunload. */
+  private saveBookmarks() {
+    fetch(apiUrl("/api/bookmarks"), {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chunks: this.marks.map((m) => m.chunk) }),
       keepalive: true,
     }).catch(() => {})
   }
