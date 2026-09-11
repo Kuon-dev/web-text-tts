@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { LazyMotion, MotionConfig, domAnimation } from "motion/react"
 import { AdjustHUD } from "@/components/AdjustHUD"
 import { CommandPalette, type PalettePage } from "@/components/CommandPalette"
@@ -72,32 +72,6 @@ export default function App() {
   useEffect(() => {
     document.documentElement.style.fontSize = prefs.uiScale === 1 ? "" : `${prefs.uiScale * 100}%`
   }, [prefs.uiScale])
-
-  // The reader unmounts while settings is open. Its scroll offset is tracked
-  // while it is mounted (by the time the view flips, the reader is gone and
-  // window.scrollY has already been clamped to the settings page's height),
-  // snapshotted when settings opens, and put back in a layout effect on close.
-  // Layout effects run before the reader's useFollowChunk passive effect, so
-  // the current sentence is already on the reading line and the follow hook
-  // glides at most the distance playback advanced.
-  const readerScroll = useRef(0)
-  const savedScroll = useRef(0)
-  useEffect(() => {
-    if (settingsOpen) return
-    const onScroll = () => {
-      readerScroll.current = window.scrollY
-    }
-    window.addEventListener("scroll", onScroll, { passive: true })
-    return () => window.removeEventListener("scroll", onScroll)
-  }, [settingsOpen])
-  useLayoutEffect(() => {
-    if (settingsOpen) {
-      savedScroll.current = readerScroll.current
-      window.scrollTo(0, 0)
-    } else {
-      window.scrollTo(0, savedScroll.current)
-    }
-  }, [settingsOpen])
 
   const openPaste = useCallback(() => setPasteOpen(true), [])
 

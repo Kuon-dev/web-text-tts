@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { Image as ImageIcon, MicVocal, Palette, Type, type LucideIcon } from "lucide-react"
 import { m } from "motion/react"
+import { TILE_FRAME } from "@/components/tile"
 import { Button } from "@/components/ui/button"
 import type { FontKey, ReadingPrefs } from "@/lib/reading"
 import type { ThemePrefs } from "@/lib/theme"
@@ -40,7 +41,7 @@ const TILE_SPRING = { type: "spring", stiffness: 180, damping: 24 } as const
 
 /** Settings as a window tile in place of the reader: rail · controls ·
  *  preview. The window is the same size for every section — it fills the
- *  space between the top gap and the dock, the way System Settings keeps
+ *  frame the reader's tile fills (TILE_FRAME), the way System Settings keeps
  *  one window and scrolls only its content — so the header, the rail and
  *  the preview stay put and the controls pane scrolls on its own.
  *  Everything applies live; there is nothing to save. */
@@ -94,7 +95,7 @@ export function SettingsPage(props: SettingsPageProps) {
     )
 
   return (
-    <main className="h-dvh w-full px-2 pt-2 pb-[calc(var(--dock-h)+0.5rem)] sm:px-3 sm:pt-3 sm:pb-[calc(var(--dock-h)+0.75rem)]">
+    <main className={TILE_FRAME}>
       <m.div
         initial={{ opacity: 0, scale: 0.985, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}

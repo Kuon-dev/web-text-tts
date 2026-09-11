@@ -140,8 +140,8 @@ export const ACTIONS: readonly Action[] = [
     run: () => player.jump(player.getSnapshot().idx + 1),
   },
   {
-    // Shift, not bare arrows: the reader is a long scrolling page and ↑/↓ have
-    // to keep scrolling it.
+    // Shift, not bare arrows: ↑/↓ scroll the chapter panel and have to keep
+    // doing so.
     id: "volume-up",
     label: "Volume up",
     group: "Audio",
