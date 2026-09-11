@@ -90,6 +90,11 @@ def append_text(st, text: str) -> dict:
         if pos is not None:
             st.state["positions"][new_id] = pos
         marks = st.state["bookmarks"].get(st.doc_id)
+        # Pop the old key first: set_bookmarks does the same, and it keeps the
+        # map size-neutral for the LRU cap (one key out, one key in). An empty
+        # list is never stored - set_bookmarks pops instead - so truthiness is
+        # safe.
+        st.state["bookmarks"].pop(st.doc_id, None)
         if marks:
             st.state["bookmarks"][new_id] = marks
         st.load_doc(combined)

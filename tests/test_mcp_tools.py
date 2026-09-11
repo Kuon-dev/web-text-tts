@@ -177,3 +177,16 @@ def test_append_text_carries_a_bookmark_on_the_first_sentence(st):
     st.set_bookmarks([0])
     mcp_tools.append_text(st, "Third line.")
     assert [m["chunk"] for m in st.bookmarks()] == [0]
+
+
+def test_append_text_removes_the_old_doc_id_from_bookmarks(st):
+    # The bookmarks map is capped at MAX_BOOKMARK_DOCS with LRU eviction.
+    # append_text mints a new doc_id, so the old one would be orphaned and
+    # burn a slot. Pop it first, mirroring set_bookmarks, so the map stays
+    # size-neutral: one key out, one key in.
+    st.set_bookmarks([1])
+    old_id = st.doc_id
+    mcp_tools.append_text(st, "Third line.")
+    assert old_id not in st.state["bookmarks"]
+    assert st.doc_id in st.state["bookmarks"]
+    assert [m["chunk"] for m in st.bookmarks()] == [1]
