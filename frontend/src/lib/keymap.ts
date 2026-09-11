@@ -16,7 +16,7 @@ export interface KeySpec {
  *  global — only the dialogs App owns have to be injected. */
 export interface KeymapCtx {
   openPalette: () => void
-  openPalettePage: (page: "voice" | "model") => void
+  openPalettePage: (page: "voice" | "model" | "bookmarks") => void
   openHelp: () => void
   openPaste: () => void
   toggleSettings: () => void

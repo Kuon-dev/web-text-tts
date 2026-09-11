@@ -23,9 +23,9 @@ import { voiceLabel } from "@/lib/api"
 import { ACTIONS, formatSpec, isMac, type Action, type Group, type KeymapCtx } from "@/lib/keymap"
 import { player, usePlayer } from "@/lib/player"
 
-/** The two lists that are too long to live as palette rows: they get a page of
- *  their own, reached by a root row or straight from `v` / `e`. */
-export type PalettePage = "voice" | "model"
+/** The lists that are too long to live as palette rows: they get a page of
+ *  their own, reached by a root row or straight from `v` / `e` / `⇧B`. */
+export type PalettePage = "voice" | "model" | "bookmarks"
 
 // Built once at module scope: ACTIONS is frozen data, and the group order that
 // falls out of first appearance is the order the registry declares — the only
@@ -42,12 +42,14 @@ const ROOT_GROUPS: [Group, Action[]][] = (() => {
 const PLACEHOLDER: Record<string, string> = {
   voice: "Search voices…",
   model: "Search models…",
+  bookmarks: "Search bookmarks…",
   root: "Type a command…",
 }
 
 const EMPTY: Record<string, string> = {
   voice: "No voice found.",
   model: "No model found.",
+  bookmarks: "No bookmarks yet — press b to mark the sentence being read.",
   root: "No command found.",
 }
 
@@ -72,7 +74,7 @@ interface Props {
 export function CommandPalette({ open, onOpenChange, initialPage = null, ctx }: Props) {
   const [page, setPage] = useState<PalettePage | null>(initialPage)
   const [search, setSearch] = useState("")
-  const { voice, voices, engine, switchingTo } = usePlayer()
+  const { voice, voices, engine, switchingTo, bookmarks } = usePlayer()
   const voiceGroups = useVoiceGroups(voices)
   const engines = useEngineCatalog()
   const mac = useMemo(() => isMac(), [])
@@ -119,6 +121,13 @@ export function CommandPalette({ open, onOpenChange, initialPage = null, ctx }: 
     if (id !== voice && !(await player.setVoice(id))) {
       toast.error("Voice change failed — is the server running?")
     }
+  }
+
+  /** A bookmark is a place to read from, so going to one moves the playhead —
+   *  the same thing clicking a sentence does. */
+  const selectBookmark = (chunk: number) => {
+    onOpenChange(false)
+    player.jump(chunk)
   }
 
   const selectEngine = async (id: string) => {
@@ -210,6 +219,22 @@ export function CommandPalette({ open, onOpenChange, initialPage = null, ctx }: 
                     {/* An engine the machine cannot run stays listed, with the
                         server's reason, so its absence is never a mystery. */}
                     {!e.available && e.reason && <span className="truncate text-xs text-muted-foreground">{e.reason}</span>}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            )}
+
+            {page === "bookmarks" && (
+              <CommandGroup heading="Bookmarks">
+                {bookmarks.map((m) => (
+                  <CommandItem
+                    key={m.chunk}
+                    value={`${m.excerpt} ${m.chunk}`}
+                    onSelect={() => selectBookmark(m.chunk)}
+                  >
+                    <span className="min-w-0 flex-1 truncate">{m.excerpt}</span>
+                    {/* Sentence number, 1-based like the dock's counter. */}
+                    <CommandShortcut>{m.chunk + 1}</CommandShortcut>
                   </CommandItem>
                 ))}
               </CommandGroup>
