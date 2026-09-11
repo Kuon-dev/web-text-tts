@@ -1,7 +1,7 @@
 import { player } from "./player"
 
 export type Scope = "global" | "reader"
-export type Group = "Playback" | "Audio" | "Narration" | "App"
+export type Group = "Playback" | "Audio" | "Narration" | "Bookmarks" | "App"
 
 export interface KeySpec {
   /** Compared to `e.key`, not `e.code`: "k" | "," | "ArrowUp" | " " | "?" | "[". */
@@ -202,6 +202,45 @@ export const ACTIONS: readonly Action[] = [
     scope: "reader",
     keys: [{ key: "e" }],
     run: (ctx) => ctx.openPalettePage("model"),
+  },
+  {
+    // A bookmark marks the sentence the voice is on, not the one nearest the
+    // middle of the viewport: `b` is pressed because of something just heard.
+    id: "bookmark-toggle",
+    label: "Toggle bookmark",
+    group: "Bookmarks",
+    scope: "reader",
+    keys: [{ key: "b" }],
+    run: () => player.toggleBookmark(),
+  },
+  {
+    // Declared before its sibling: `pair` is set on the first half only, or
+    // the sheet renders the row twice and swallows the wrong partner.
+    id: "bookmark-prev",
+    label: "Previous bookmark",
+    group: "Bookmarks",
+    scope: "reader",
+    keys: [{ key: "N", shift: true }],
+    pair: { with: "bookmark-next", label: "Previous / next bookmark" },
+    run: () => player.prevBookmark(),
+  },
+  {
+    id: "bookmark-next",
+    label: "Next bookmark",
+    group: "Bookmarks",
+    scope: "reader",
+    keys: [{ key: "n" }],
+    run: () => player.nextBookmark(),
+  },
+  {
+    // "reader", matching `voice` and `model` — the other actions that open a
+    // palette page — so it does not fire while the settings page is up.
+    id: "bookmark-list",
+    label: "Bookmarks…",
+    group: "Bookmarks",
+    scope: "reader",
+    keys: [{ key: "B", shift: true }],
+    run: (ctx) => ctx.openPalettePage("bookmarks"),
   },
 ]
 

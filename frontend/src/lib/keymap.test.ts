@@ -13,6 +13,9 @@ vi.mock("./player", () => ({
     toggleMute: vi.fn(),
     nudgeVolume: vi.fn(),
     nudgeSpeed: vi.fn(),
+    toggleBookmark: vi.fn(),
+    nextBookmark: vi.fn(),
+    prevBookmark: vi.fn(),
     getSnapshot: vi.fn(() => ({ idx: 3 })),
   },
 }))
@@ -291,7 +294,63 @@ describe("ACTIONS pairing", () => {
     }
   })
 
-  it("pairs exactly the three two-key rows", () => {
-    expect(ACTIONS.filter((a) => a.pair).map((a) => a.id)).toEqual(["prev-sentence", "volume-up", "speed-down"])
+  it("pairs exactly the four two-key rows", () => {
+    expect(ACTIONS.filter((a) => a.pair).map((a) => a.id)).toEqual([
+      "prev-sentence", "volume-up", "speed-down", "bookmark-prev",
+    ])
+  })
+})
+
+describe("bookmarks", () => {
+  it("binds the bare letters nothing else claims", () => {
+    expect(idFor(ev("b"))).toBe("bookmark-toggle")
+    expect(idFor(ev("n"))).toBe("bookmark-next")
+  })
+
+  it("separates the shifted twins from the bare keys", () => {
+    // Letters require shift off (keymap.ts), so ⇧N and ⇧B cannot be shadowed
+    // by their bare siblings the way a shifted arrow would be.
+    expect(idFor(ev("N", { shiftKey: true }))).toBe("bookmark-prev")
+    expect(idFor(ev("B", { shiftKey: true }))).toBe("bookmark-list")
+  })
+
+  it("stands down while a chapter is being pasted", () => {
+    const typing: KeymapGuards = { textEntry: true, controlFocused: false, overlayOpen: false }
+    expect(idFor(ev("b"), typing)).toBeNull()
+    expect(idFor(ev("n"), typing)).toBeNull()
+  })
+
+  it("drives the player and opens its palette page", () => {
+    const ctx: KeymapCtx = {
+      openPalette: vi.fn(),
+      openPalettePage: vi.fn(),
+      openHelp: vi.fn(),
+      openPaste: vi.fn(),
+      toggleSettings: vi.fn(),
+    }
+    actionById("bookmark-toggle").run(ctx)
+    expect(player.toggleBookmark).toHaveBeenCalledOnce()
+
+    actionById("bookmark-next").run(ctx)
+    expect(player.nextBookmark).toHaveBeenCalledOnce()
+
+    actionById("bookmark-prev").run(ctx)
+    expect(player.prevBookmark).toHaveBeenCalledOnce()
+
+    actionById("bookmark-list").run(ctx)
+    expect(ctx.openPalettePage).toHaveBeenCalledWith("bookmarks")
+  })
+
+  it("claims no key another action already had", () => {
+    // No test asserted this before, and a duplicate binding fails silently —
+    // shadowed by whichever action is declared first.
+    const seen = new Set<string>()
+    for (const a of ACTIONS) {
+      for (const s of a.keys) {
+        const id = `${s.mod ? "mod+" : ""}${s.shift ? "shift+" : ""}${s.key}`
+        expect(seen.has(id), `${id} is bound twice`).toBe(false)
+        seen.add(id)
+      }
+    }
   })
 })
