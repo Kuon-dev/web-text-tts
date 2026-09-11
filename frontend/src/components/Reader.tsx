@@ -43,7 +43,7 @@ function stagger(pi: number): CSSProperties | undefined {
 }
 
 export function Reader({ prefs, onPasteClick }: Props) {
-  const { docId, chunks, images, idx, playing, ready, failed } = usePlayer()
+  const { docId, chunks, images, idx, playing, ready, failed, bookmarkSet } = usePlayer()
   const empty = !chunks.length && !images.length
 
   // Track the previously focused sentence so the one the voice just left
@@ -204,6 +204,7 @@ export function Reader({ prefs, onPasteClick }: Props) {
                       onClick={() => player.clickChunk(i)}
                       className={cn(
                         "rd-chunk cursor-pointer rounded-sm box-decoration-clone px-0.5",
+                        bookmarkSet.has(i) && "rd-marked",
                         i === prevIdx && i !== idx && "hl-leave",
                         i === idx
                           ? cn("hl-current text-foreground", !ready.has(chunk.id) && !failed.has(chunk.id) && "hl-buffering")

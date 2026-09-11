@@ -710,6 +710,28 @@ html {
         color 450ms ease-out,
         --rd-edge 120ms ease-out;
 }
+/* A bookmarked sentence.
+
+   ::before rather than a border-left or an inset box-shadow: .rd-chunk carries
+   box-decoration-clone (so the highlight band closes on every wrapped line),
+   which would repeat either of those at the start of every line fragment of a
+   long sentence. The pseudo-element renders once, where the sentence begins.
+
+   The negative inline start margin cancels .rd-chunk's px-0.5 so adding a mark
+   does not nudge the paragraph's text. Neutral, not accented: all five --ac-*
+   slots belong to the dock modules and --accent-base is reserved for playback
+   state. */
+.rd-marked::before {
+    content: "";
+    display: inline-block;
+    width: 2px;
+    height: 0.95em;
+    margin-inline-start: -0.125rem;
+    margin-inline-end: 0.3em;
+    vertical-align: -0.1em;
+    border-radius: 1px;
+    background: color-mix(in oklab, var(--foreground) 55%, transparent);
+}
 @keyframes hl-in {
     from {
         --rd-fill: transparent;
