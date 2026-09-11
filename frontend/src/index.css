@@ -717,10 +717,24 @@ html {
    which would repeat either of those at the start of every line fragment of a
    long sentence. The pseudo-element renders once, where the sentence begins.
 
-   The negative inline start margin cancels .rd-chunk's px-0.5 so adding a mark
-   does not nudge the paragraph's text. Neutral, not accented: all five --ac-*
-   slots belong to the dock modules and --accent-base is reserved for playback
-   state. */
+   The -0.125rem inline start margin is exactly the bar's own 2px, and exactly
+   .rd-chunk's px-0.5, so the bar sits in the sentence's left padding and the
+   marked sentence's own left edge does not move: measured in the built app it
+   holds at 0.000px.
+
+   It does NOT make the mark free. Nothing cancels the 0.3em
+   margin-inline-end, so the marked span comes out 0.3em wider — measured at
+   5.398px against the 18px default reading size (reading.ts DEFAULT_PREFS).
+   Text after it in the same paragraph shifts right by that much, and a
+   sentence ending near a wrap threshold can take its line break with it.
+   Marking never moves the sentence you marked; it can move what follows. (An
+   earlier version of this comment claimed marking "does not nudge the
+   paragraph's text", which is false by exactly that 0.3em — worth spelling out,
+   because the next person laying out this hot-path stylesheet will trust
+   whatever is written here.)
+
+   Neutral, not accented: all five --ac-* slots belong to the dock modules and
+   --accent-base is reserved for playback state. */
 .rd-marked::before {
     content: "";
     display: inline-block;

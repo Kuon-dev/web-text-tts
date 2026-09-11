@@ -1,5 +1,13 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 
+// The bookmark tests read what the user would have been told, and sonner is the
+// only way the player says it. Mocked rather than observed: sonner's real
+// `toast()` queues into a store no <Toaster> is mounted to under
+// `environment: "node"`, so nothing would be assertable.
+vi.mock("sonner", () => ({
+  toast: Object.assign(vi.fn(), { message: vi.fn(), error: vi.fn(), success: vi.fn() }),
+}))
+
 // player.ts constructs `new Audio()` at module scope, which does not exist in
 // the node environment — stub it before importing the module under test.
 class FakeAudio {
@@ -507,4 +515,125 @@ it("stays quiet when the new engine's weights were already resident", async () =
   await poll({ engine: "qwen3", label: "Qwen3-TTS 1.7B", loading: false })
   await poll({ loading: false })
   expect(ready).toEqual([])
+})
+
+/** Boots the player on a three-sentence doc with a controllable PUT
+ *  /api/bookmarks. `reply` is what that route answers with next; the default is
+ *  the route's real contract, the canonical stored list. */
+async function bootForBookmarks(reply: { ok: boolean; body?: unknown } = { ok: true }) {
+  vi.resetModules()
+  vi.useFakeTimers()
+  vi.stubGlobal("Audio", FakeAudio)
+  const current = { ...reply }
+  const chunks = [
+    { id: "c1", text: "One.", para: 0 },
+    { id: "c2", text: "Two.", para: 0 },
+    { id: "c3", text: "Three.", para: 0 },
+  ]
+  const fetchMock = vi.fn().mockImplementation(async (...args) => {
+    const url = String(args[0])
+    if (url.includes("/api/voices")) return { ok: true, json: async () => ({ voices: [], current: "" }) }
+    if (url.includes("/api/bookmarks")) {
+      const sent = JSON.parse(String((args[1] as { body: string }).body)) as { chunks: number[] }
+      return {
+        ok: current.ok,
+        status: current.ok ? 200 : 500,
+        // The real route answers with the marks it stored, excerpts included.
+        json: async () =>
+          current.body ?? { bookmarks: sent.chunks.map((c) => ({ chunk: c, excerpt: chunks[c].text })) },
+      }
+    }
+    if (url.includes("/api/doc")) {
+      return {
+        ok: true,
+        json: async () => ({ doc_id: "d1", chunks, position: 0, voice: "v1", speed: 1, volume: 1, bookmarks: [] }),
+      }
+    }
+    if (url.includes("/api/status")) return { ok: true, json: async () => ({ doc_id: "d1", ready: [], failed: [], blocked: null }) }
+    return { ok: true, json: async () => ({}) }
+  })
+  vi.stubGlobal("fetch", fetchMock)
+  const { player } = await import("./player")
+  // The player's own sonner instance: same fresh module graph after the reset.
+  const { toast } = await import("sonner")
+  player.start()
+  await vi.advanceTimersByTimeAsync(0)
+  // vi.resetModules() rebuilds the module graph but not the mock registry, so
+  // the sonner spies survive from test to test — clear them, or a call count
+  // here is really the whole file's running total.
+  vi.clearAllMocks()
+  return {
+    player,
+    toast,
+    puts: () => fetchMock.mock.calls.filter((c) => String(c[0]).includes("/api/bookmarks")),
+    answerWith: (next: { ok: boolean; body?: unknown }) => Object.assign(current, next),
+  }
+}
+
+it("names the document a bookmark write belongs to, so it cannot land on another one", async () => {
+  // Without doc_id the PUT applies to whatever document the server holds *now*.
+  // An MCP load_text or a paste from another client inside the 2s poll window
+  // would file this chapter's indices under the new doc — and the server fills
+  // in the new document's excerpts, so dropStale keeps every one of them.
+  const { player, puts } = await bootForBookmarks()
+  player.toggleBookmark()
+  await vi.advanceTimersByTimeAsync(0)
+
+  expect(puts().length).toBe(1)
+  expect(JSON.parse(puts()[0][1].body)).toEqual({ doc_id: "d1", chunks: [0] })
+  expect(puts()[0][1].keepalive).toBe(true)
+})
+
+it("converges on the list the server stored, and does not write again doing it", async () => {
+  // The response is the correction: it closes the case where the server
+  // truncated at MAX_MARKS, or refused the write outright because the document
+  // had moved on, while the client still believed its optimistic list.
+  const { player, puts, answerWith } = await bootForBookmarks()
+  answerWith({ ok: true, body: { bookmarks: [{ chunk: 2, excerpt: "Three." }] } })
+
+  player.toggleBookmark() // optimistically marks sentence 1 (index 0)
+  expect(player.getSnapshot().bookmarks).toEqual([{ chunk: 0, excerpt: "One." }])
+  await vi.advanceTimersByTimeAsync(0)
+
+  expect(player.getSnapshot().bookmarks).toEqual([{ chunk: 2, excerpt: "Three." }])
+  expect(player.getSnapshot().bookmarkSet.has(2)).toBe(true)
+  expect(player.getSnapshot().bookmarkSet.has(0)).toBe(false)
+  // Consuming a response must never feed a write back out: that is the one way
+  // this could become a loop between client and server.
+  expect(puts().length).toBe(1)
+})
+
+it("says a bookmark was not saved, in place of the success it already claimed", async () => {
+  // fetch only rejects on a network failure, so a 500 (or a 422) resolves
+  // normally and the old `.catch(() => {})` swallowed it. Unlike a position —
+  // re-sent on every jump and every sentence, so a failure self-heals within
+  // seconds — a mark is written once, so a phantom sits on screen looking saved
+  // until the app closes and then vanishes with nothing ever said.
+  const { player, toast } = await bootForBookmarks({ ok: false })
+  player.toggleBookmark()
+  expect(toast.message).toHaveBeenCalledWith("Bookmarked sentence 1", expect.objectContaining({ id: "bookmark" }))
+
+  await vi.advanceTimersByTimeAsync(0)
+  // Same toast id: the error replaces the success rather than stacking under it.
+  expect(toast.error).toHaveBeenCalledWith(expect.stringContaining("not saved"), { id: "bookmark" })
+})
+
+it("keeps quiet about a body it cannot parse, because the 2xx already said the write landed", async () => {
+  const { player, toast } = await bootForBookmarks()
+  const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>
+  fetchMock.mockImplementationOnce(async () => ({ ok: true, status: 200, json: async () => { throw new Error("not JSON") } }))
+
+  player.toggleBookmark()
+  await vi.advanceTimersByTimeAsync(0)
+  expect(toast.error).not.toHaveBeenCalled()
+  expect(player.getSnapshot().bookmarks).toEqual([{ chunk: 0, excerpt: "One." }])
+})
+
+it("says there is nothing to step to rather than looking like a dead key", async () => {
+  const { player, toast } = await bootForBookmarks()
+  player.nextBookmark()
+  player.prevBookmark()
+  expect(player.getSnapshot().idx).toBe(0)
+  expect(toast.message).toHaveBeenCalledTimes(2)
+  expect(toast.message).toHaveBeenLastCalledWith(expect.stringContaining("No bookmarks"), expect.objectContaining({ id: "bookmark" }))
 })

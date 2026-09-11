@@ -73,9 +73,18 @@ module-level dict. The loader gets the same `isinstance(..., dict)` guard
 ### `PUT /api/bookmarks`
 
 ```
-request   {"chunks": [12, 87, 203]}
+request   {"chunks": [12, 87, 203], "doc_id": "…"}
 response  {"bookmarks": [{"chunk": 12, "excerpt": "…"}, …]}
 ```
+
+`doc_id` is optional — `static/` is a committed bundle and the desktop shell
+can be running an older one — but the client always sends it. Without it the
+indices apply to whatever document the server holds *now*: a document swapped
+by `load_text`, another client, or the shell inside the browser's 2s poll
+window would take the previous chapter's indices and have its own excerpts
+written against them, which the client's `dropStale` then has no way to catch.
+A body naming another document is dropped silently and answered `200` with the
+current marks — there is nothing to retry, and that list is the correction.
 
 Validate-then-apply, the shape `post_state` uses (`server.py:314`) so a bad
 element cannot leave a half-written list:
@@ -277,5 +286,11 @@ Two existing tests need updating, both honest pins rather than collateral:
   index and no `c<i>` element to aim at.
 - **Convergence between two open clients.** There is no push channel and no
   `bookmarks_rev` on `/api/status`; the browser refetches `/api/doc` only when
-  `doc_id` changes, so the whole map is last-write-wins — exactly the
-  guarantee `positions` gives today.
+  `doc_id` changes, so the last write wins. Note that this is *worse* than what
+  `positions` gives, not the same: a position is a scalar, so last-write-wins
+  means one of two numbers survives, and the loser was only a resume point. A
+  bookmark write is a whole list, so client B's PUT **erases every mark client A
+  made** — and A goes on displaying them, because `doc_id` never changed and
+  nothing tells it to refetch. Two clients on one chapter is not a case this
+  design handles; it is still a non-goal, and nothing here should be relied on
+  as a guarantee of anything.

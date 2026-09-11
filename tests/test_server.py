@@ -8,7 +8,7 @@ import soundfile as sf
 from fastapi.testclient import TestClient
 
 from chunker import chunk_id
-from server import STATIC_DIR, AppState, MAX_BOOKMARK_DOCS, create_app, migrate_state
+from server import STATIC_DIR, AppState, MAX_BOOKMARK_DOCS, MAX_MARKS, create_app, migrate_state
 from tts.base import Voice
 
 
@@ -550,6 +550,39 @@ def test_bookmarks_accessor_drops_indices_past_the_end(tmp_path):
     assert [m["chunk"] for m in st.bookmarks()] == [0]
 
 
+def test_bookmarks_accessor_dedupes_by_chunk(tmp_path):
+    # The stored shape is "sorted by chunk, unique". set_bookmarks dedupes on
+    # write and the MCP carry copies an already-clean list, so the only way to
+    # breach it is a hand-edited state.json - which is exactly what the
+    # accessor's other guards (list-ness, dict-ness, int-ness, range) exist for,
+    # and which the design invites by advertising the file as readable by eye.
+    #
+    # Two entries with the same chunk reach the client as two <div key={2}> on
+    # the dock rail and two <CommandItem key={2}> with identical cmdk values:
+    # duplicate React keys plus a cmdk identity collision.
+    st = make_state(tmp_path)
+    st.load_doc("One.\nTwo.")
+    st.state["bookmarks"][st.doc_id] = [{"chunk": 1, "excerpt": "first"},
+                                        {"chunk": 1, "excerpt": "second"},
+                                        {"chunk": 0, "excerpt": "One."}]
+    # First occurrence wins, and the result is still sorted.
+    assert st.bookmarks() == [{"chunk": 0, "excerpt": "One."},
+                              {"chunk": 1, "excerpt": "first"}]
+
+
+def test_set_bookmarks_truncates_at_the_cap_keeping_the_lowest_indices(tmp_path):
+    # A backstop against a malformed request, not a UX decision - but an
+    # untested cap is a cap that can quietly stop applying.
+    st = make_state(tmp_path)
+    st.load_doc("\n".join(f"Sentence {n}." for n in range(260)))
+    assert len(st.chunks) >= 250
+    stored = st.set_bookmarks(list(range(250)))
+    assert len(stored) == MAX_MARKS
+    # In chunk order, so it is the start of the chapter that survives - the
+    # truncation is not "whichever 200 the dict happened to iterate".
+    assert [m["chunk"] for m in stored] == list(range(MAX_MARKS))
+
+
 def test_bookmarks_keep_their_stored_excerpt(tmp_path):
     # The excerpt is what a later re-anchoring pass would match on, so it is
     # stored, not re-derived: re-deriving it would silently make every mark
@@ -627,11 +660,52 @@ def test_doc_json_carries_bookmarks(tmp_path):
     assert client.get("/api/doc").json()["bookmarks"] == [{"chunk": 1, "excerpt": "Two."}]
 
 
-def test_put_bookmarks_clamps_out_of_range_indices(tmp_path):
+def test_put_bookmarks_drops_out_of_range_indices(tmp_path):
+    # Drops, never clamps. That is the feature's central design decision: a
+    # position out of range resolves to the last sentence because a resume point
+    # is a harmless approximation, but a bookmark silently pointing at the end of
+    # the chapter is worse than a bookmark that is gone.
     client, _ = make_client(tmp_path)
     client.post("/api/doc", json={"text": "One.\nTwo."})
     body = client.put("/api/bookmarks", json={"chunks": [0, 99999, -3]}).json()
     assert [m["chunk"] for m in body["bookmarks"]] == [0]
+
+
+def test_put_bookmarks_ignores_a_write_aimed_at_another_document(tmp_path):
+    # The body is otherwise a bare list of indices that applies to whatever
+    # document the server holds *now*. An MCP load_text, a paste from another
+    # client or the desktop shell can replace the document inside the client's
+    # 2s poll window, and a `b` press landing in that window would file the old
+    # chapter's indices under the new doc_id - where set_bookmarks fills in the
+    # new document's excerpts, so the client's dropStale finds nothing wrong and
+    # keeps every one. Fabricated marks on a chapter nobody marked.
+    client, _ = make_client(tmp_path)
+    stale = client.post("/api/doc", json={"text": "One.\nTwo.\nThree."}).json()["doc_id"]
+    client.post("/api/doc", json={"text": "Alpha.\nBeta.\nGamma."})
+    client.put("/api/bookmarks", json={"chunks": [1]})       # a real mark on the new doc
+    resp = client.put("/api/bookmarks", json={"chunks": [0, 2], "doc_id": stale})
+    # 200, not 409: the client's optimistic list is already stale, and the
+    # response it gets back is the correction.
+    assert resp.status_code == 200
+    assert [m["chunk"] for m in resp.json()["bookmarks"]] == [1]
+    assert [m["chunk"] for m in client.get("/api/doc").json()["bookmarks"]] == [1]
+
+
+def test_put_bookmarks_accepts_a_write_that_names_the_current_document(tmp_path):
+    client, _ = make_client(tmp_path)
+    doc_id = client.post("/api/doc", json={"text": "One.\nTwo.\nThree."}).json()["doc_id"]
+    body = client.put("/api/bookmarks", json={"chunks": [2], "doc_id": doc_id}).json()
+    assert [m["chunk"] for m in body["bookmarks"]] == [2]
+
+
+def test_put_bookmarks_without_a_doc_id_still_writes(tmp_path):
+    # Optional on purpose: static/ is a committed bundle and the Tauri shell can
+    # be running an older one, so a body from before the field existed must keep
+    # working rather than silently no-op every mark it sets.
+    client, _ = make_client(tmp_path)
+    client.post("/api/doc", json={"text": "One.\nTwo.\nThree."})
+    body = client.put("/api/bookmarks", json={"chunks": [1]}).json()
+    assert [m["chunk"] for m in body["bookmarks"]] == [1]
 
 
 def test_put_bookmarks_rejects_a_non_integer_list(tmp_path):

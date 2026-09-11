@@ -263,7 +263,18 @@ function matchesSpec(e: KeyEventLike, spec: KeySpec): boolean {
   //    Letters are the exception in the other direction: they compare
   //    case-insensitively so Caps Lock still mutes, but require shift off so
   //    ⇧M cannot fire mute while typing a capital in the reader.
-  if (spec.shift) return e.shiftKey && e.key === spec.key
+  //
+  //    The shift branch compares case-insensitively for the same Caps Lock
+  //    reason, and it has to: Caps Lock and Shift XOR for Latin letters, so
+  //    with Caps Lock on the browser delivers ⇧N as `key: "n"`, not `"N"`.
+  //    Comparing literally left `bookmark-prev` (⇧N) and `bookmark-list` (⇧B)
+  //    completely dead under Caps Lock — this branch returns before the letter
+  //    branch below, and the bare `n`/`b` specs demand shift OFF, so neither
+  //    half of the pair could catch the event. The pre-existing shift specs are
+  //    ⇧↑/⇧↓, whose `e.key` Caps Lock does not touch, which is why the gap was
+  //    unreachable until the first shifted *letter* binding arrived; lowercasing
+  //    both sides leaves "ArrowUp" matching "ArrowUp" exactly as before.
+  if (spec.shift) return e.shiftKey && e.key.toLowerCase() === spec.key.toLowerCase()
   if (LETTER.test(spec.key)) return !e.shiftKey && e.key.toLowerCase() === spec.key
   return e.key === spec.key
 }

@@ -27,6 +27,22 @@ const SNAP_PX = 6
 function ProgressRail({ n, idx, marks }: { n: number; idx: number; marks: readonly Mark[] }) {
   const pct = n ? ((idx + 1) / n) * 100 : 0
   const at = (chunk: number) => (n > 1 ? (chunk / (n - 1)) * 100 : 0)
+  // A tick is centred on its position, which at 0% and 100% puts half of its
+  // 2px outside the rail's box — where the dock's outer `rounded-lg
+  // overflow-hidden` clips it. At 16x the last sentence's tick reads as a
+  // corner artifact and the first sentence's is a 1px sliver over the blue
+  // fill; marking a chapter's opening or closing line is entirely ordinary.
+  // So the two end ticks hang inward instead of straddling. Chunk 0 is tested
+  // first because in a one-sentence chapter it is also the last, and there
+  // `left: 0%` with -translate-x-full would put the whole tick outside.
+  //
+  // This deliberately does NOT remap the coordinate system to sentence-band
+  // centres, which would also fix it: the scrub's inverse would have to change
+  // in lockstep. The snap below still measures to `at(m.chunk)`, so an end
+  // tick's drawn centre is 1px off what the snap aims at — immaterial against
+  // SNAP_PX of 6.
+  const tickShift = (chunk: number) =>
+    chunk === 0 ? "" : chunk === n - 1 ? "-translate-x-full" : "-translate-x-1/2"
   const scrub = (e: MouseEvent<HTMLDivElement>) => {
     if (!n) return
     const r = e.currentTarget.getBoundingClientRect()
@@ -66,7 +82,7 @@ function ProgressRail({ n, idx, marks }: { n: number; idx: number; marks: readon
         <div
           key={m.chunk}
           aria-hidden
-          className="pointer-events-none absolute inset-y-0 w-0.5 -translate-x-1/2 rounded-full bg-foreground/45"
+          className={`pointer-events-none absolute inset-y-0 w-0.5 rounded-full bg-foreground/45 ${tickShift(m.chunk)}`}
           style={{ left: `${at(m.chunk)}%` }}
         />
       ))}

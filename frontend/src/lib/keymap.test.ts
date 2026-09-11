@@ -314,6 +314,31 @@ describe("bookmarks", () => {
     expect(idFor(ev("B", { shiftKey: true }))).toBe("bookmark-list")
   })
 
+  it("still fires the shifted twins with Caps Lock on, where the letter arrives lowercase", () => {
+    // Caps Lock and Shift XOR for Latin letters: with Caps Lock on, ⇧N is
+    // delivered as `key: "n"` with shiftKey true. Comparing the spec's "N" to
+    // that literally made both ⇧N and ⇧B completely dead — not merely
+    // misfiring — because the shift branch returns before the letter branch
+    // and the bare `n`/`b` specs require shift OFF.
+    expect(idFor(ev("n", { shiftKey: true }))).toBe("bookmark-prev")
+    expect(idFor(ev("b", { shiftKey: true }))).toBe("bookmark-list")
+  })
+
+  it("keeps Caps Lock alone on the bare keys, where the letter arrives uppercase", () => {
+    expect(idFor(ev("N"))).toBe("bookmark-next")
+    expect(idFor(ev("B"))).toBe("bookmark-toggle")
+  })
+
+  it("leaves the shifted arrows matching exactly as they did", () => {
+    // Pins the arrows against the case-insensitive comparison above: arrow
+    // `e.key` values are unaffected by Caps Lock, and "ArrowUp" lowercased on
+    // both sides still only equals "ArrowUp" lowercased.
+    expect(idFor(ev("ArrowUp", { shiftKey: true }))).toBe("volume-up")
+    expect(idFor(ev("ArrowDown", { shiftKey: true }))).toBe("volume-down")
+    expect(idFor(ev("ArrowUp"))).toBeNull()
+    expect(idFor(ev("ArrowDown"))).toBeNull()
+  })
+
   it("stands down while a chapter is being pasted", () => {
     const typing: KeymapGuards = { textEntry: true, controlFocused: false, overlayOpen: false }
     expect(idFor(ev("b"), typing)).toBeNull()
@@ -347,7 +372,10 @@ describe("bookmarks", () => {
     const seen = new Set<string>()
     for (const a of ACTIONS) {
       for (const s of a.keys) {
-        const id = `${s.mod ? "mod+" : ""}${s.shift ? "shift+" : ""}${s.key}`
+        // Lowercased, because that is how matchesSpec compares: both the shift
+        // branch and the letter branch are case-insensitive, so `⇧N` and `⇧n`
+        // are one binding at runtime and must count as one here too.
+        const id = `${s.mod ? "mod+" : ""}${s.shift ? "shift+" : ""}${s.key.toLowerCase()}`
         expect(seen.has(id), `${id} is bound twice`).toBe(false)
         seen.add(id)
       }

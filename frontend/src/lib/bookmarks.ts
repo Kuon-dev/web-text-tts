@@ -30,7 +30,11 @@ export function nextAfter(marks: readonly Mark[], idx: number): number | null {
   return (marks.find((m) => m.chunk > idx) ?? marks[0]).chunk
 }
 
-/** The last mark before `idx`, wrapping to the last. null if there are none. */
+/** The last mark before `idx`, wrapping to the last. null if there are none.
+ *  Strictly before — hence `>=` and not `>` in the break: standing on a mark,
+ *  `>` would find that mark itself and previous would look like a dead key,
+ *  the same trap `nextAfter` avoids by searching strictly after. The two have
+ *  to agree, or `n` and `⇧N` stop being inverses of each other. */
 export function prevBefore(marks: readonly Mark[], idx: number): number | null {
   if (!marks.length) return null
   let found: Mark | undefined

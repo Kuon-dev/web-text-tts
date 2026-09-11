@@ -229,7 +229,12 @@ export function CommandPalette({ open, onOpenChange, initialPage = null, ctx }: 
                 {bookmarks.map((m) => (
                   <CommandItem
                     key={m.chunk}
-                    value={`${m.excerpt} ${m.chunk}`}
+                    // The searchable value carries the number the row *shows*,
+                    // not the 0-based index behind it: searching "12" against
+                    // `m.chunk` matched the row labelled 13, or nothing at all.
+                    // Only one of the two may be the 0-based one, and the one
+                    // the user can read is the one they will type.
+                    value={`${m.excerpt} ${m.chunk + 1}`}
                     onSelect={() => selectBookmark(m.chunk)}
                   >
                     <span className="min-w-0 flex-1 truncate">{m.excerpt}</span>

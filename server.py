@@ -76,6 +76,11 @@ class StateBody(BaseModel):
 
 class BookmarksBody(BaseModel):
     chunks: list[int]
+    # Which document the indices were taken from. Optional because static/ is a
+    # committed bundle and the Tauri shell may be running an older one: a body
+    # from before this field existed has to keep working rather than silently
+    # no-op every mark it sets. See put_bookmarks for what a mismatch does.
+    doc_id: str | None = None
 
 
 class ImageFetchBody(BaseModel):
@@ -158,8 +163,8 @@ class AppState:
         return max(0, min(raw, max(len(self.chunks) - 1, 0)))
 
     def bookmarks(self) -> list[dict]:
-        """The current document's marks, sorted, with anything addressing past
-        the end dropped.
+        """The current document's marks, sorted and unique, with anything
+        addressing past the end dropped.
 
         Deliberately unlike position(), which clamps an out-of-range index to
         the last sentence: for a resume point that is a harmless approximation,
@@ -176,12 +181,25 @@ class AppState:
         if not isinstance(raw, list):
             return []
         out = []
+        seen = set()
         for m in raw:
             if not isinstance(m, dict):
                 continue
             i = m.get("chunk")
             if not isinstance(i, int) or isinstance(i, bool) or not 0 <= i < len(self.chunks):
                 continue
+            # Deduped here and not only in set_bookmarks, for the same reason as
+            # every other guard in this loop: set_bookmarks dedupes on write and
+            # the MCP carry copies an already-clean list, so the only way a
+            # duplicate gets in is a hand-edited state.json - which this design
+            # invites by advertising the file as readable by eye. Two entries
+            # with one chunk reach the client as two <div key={n}> on the dock
+            # rail and two <CommandItem key={n}> carrying identical cmdk values:
+            # duplicate React keys plus a cmdk identity collision. First
+            # occurrence wins, so a hand-edit reads top-down the way it looks.
+            if i in seen:
+                continue
+            seen.add(i)
             out.append({"chunk": i, "excerpt": str(m.get("excerpt", ""))})
         return sorted(out, key=lambda m: m["chunk"])
 
@@ -366,8 +384,25 @@ def create_app(data_dir: Path, worker, audio_wait: float = 30.0, *, manager,
         a DELETE could address. pydantic validates the shape; set_bookmarks
         clamps the range, exactly as post_state clamps a position the accessor
         would clamp again.
+
+        A body naming a different document than the one loaded is dropped, not
+        written. Without that check the indices apply to whatever document the
+        server holds *now*: an MCP `load_text`, a paste from another client or
+        the desktop shell can swap the document inside the client's 2s poll
+        window, and a mark set in that window would be filed under the new
+        doc_id - where set_bookmarks fills in the *new* document's excerpts, so
+        the client's dropStale sees nothing wrong and keeps every one. The user
+        is left with fabricated marks on a chapter they never marked,
+        indistinguishable from real ones.
+
+        Silently, and 200 rather than 409, because there is nothing for the
+        client to retry: its optimistic list belongs to a document that is no
+        longer open, and the list returned here - the current document's marks -
+        is the correction it needs.
         """
         with st.lock:
+            if body.doc_id is not None and body.doc_id != st.doc_id:
+                return {"bookmarks": st.bookmarks()}
             marks = st.set_bookmarks(body.chunks)
             st.save_state()
             return {"bookmarks": marks}

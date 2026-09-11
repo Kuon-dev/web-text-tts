@@ -1,4 +1,11 @@
 import { useSyncExternalStore } from "react"
+// A UI package inside lib/, which vitest imports under `environment: "node"` —
+// where there is no DOM at all, and a module that touches one at import time
+// takes every test in this file down with it. sonner is safe because its
+// module-scope DOM work is guarded by `typeof document`; that guard, not the
+// package's popularity, is the thing to check before importing the next one
+// here. (player.ts already pays this cost for `new Audio()`, which the tests
+// stub.)
 import { toast } from "sonner"
 import {
   api,
@@ -92,6 +99,9 @@ class PlayerEngine {
   private gapPrimed = false
   private saveTimer: ReturnType<typeof setTimeout> | undefined
   private nudgeTimer: ReturnType<typeof setTimeout> | undefined
+  // Bumped once per bookmark write; a reply only applies if it is still the
+  // newest one in flight. See saveBookmarks.
+  private bookmarkWrite = 0
   // Which fields a nudge has moved since the last commit; the values are read
   // off the doc when the timer fires, so only the resting value is ever sent.
   private nudged = new Set<"volume" | "speed">()
@@ -361,12 +371,22 @@ class PlayerEngine {
 
   nextBookmark() {
     const i = nextAfter(this.marks, this.idx)
-    if (i !== null) this.jump(i)
+    if (i === null) this.sayThereAreNoMarks()
+    else this.jump(i)
   }
 
   prevBookmark() {
     const i = prevBefore(this.marks, this.idx)
-    if (i !== null) this.jump(i)
+    if (i === null) this.sayThereAreNoMarks()
+    else this.jump(i)
+  }
+
+  /** `n` on an unmarked chapter used to return in silence, which is exactly
+   *  what a key bound to nothing at all looks like — and `n`/`⇧N` wrap, so on
+   *  a chapter that does have marks they always move. The empty list is the
+   *  only case that can look dead, so it is the only one that speaks. */
+  private sayThereAreNoMarks() {
+    toast.message("No bookmarks in this chapter", { id: BOOKMARK_TOAST, duration: 1600 })
   }
 
   private setMarks(marks: readonly Mark[]) {
@@ -623,14 +643,66 @@ class PlayerEngine {
    *  a window in which the mark can be lost. The request is whole-list and
    *  idempotent, so repeated presses converge. `keepalive` for the same reason
    *  the position save uses it — WKWebView and WebView2 do not reliably run
-   *  beforeunload. */
+   *  beforeunload.
+   *
+   *  `doc_id` rides along because the body is otherwise a bare list of indices
+   *  that applies to whatever document the server holds *now*. An MCP
+   *  `load_text`, a paste from another client, or the desktop shell can replace
+   *  the document inside the 2s poll window, and a `b` press landing in that
+   *  window would file this chapter's indices under the new `doc_id` — where
+   *  the server fills in the new document's excerpts, so the client's dropStale
+   *  has nothing to catch and keeps every one. Fabricated marks on a chapter
+   *  nobody ever marked are indistinguishable from real ones; the server
+   *  answers a mismatch by refusing the write and returning its own list.
+   *
+   *  Unlike flushPosition this reports its failures. A position is re-sent on
+   *  every jump and every sentence advance, so a lost one self-heals within
+   *  seconds; a mark is written once, on the toggle, so a silent failure leaves
+   *  a phantom bar and tick on screen looking saved right up until the app
+   *  closes, and then gone with nothing ever said. */
   private saveBookmarks() {
+    // Which write this is, and which document it was taken from. Both are
+    // checked before the response is applied, below.
+    const write = ++this.bookmarkWrite
+    const docId = this.doc.doc_id
     fetch(apiUrl("/api/bookmarks"), {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chunks: this.marks.map((m) => m.chunk) }),
+      body: JSON.stringify({ doc_id: docId, chunks: this.marks.map((m) => m.chunk) }),
       keepalive: true,
-    }).catch(() => {})
+    })
+      .then((r) => {
+        // fetch rejects only on a *network* failure: a 422 from a malformed
+        // body or a 500 from an unwritable state.json resolves like any other
+        // response, so without this throw the catch below would never see the
+        // failure that matters most — the one where the server is up and
+        // refusing.
+        if (!r.ok) throw new Error(String(r.status))
+        // A body we cannot read is not a failed write: the 2xx already said the
+        // marks landed, so a parse error must not reach the catch and report a
+        // failure that did not happen.
+        return r.json().catch(() => null)
+      })
+      .then((body: { bookmarks?: Mark[] } | null) => {
+        // The route answers with the canonical stored list, so adopting it is
+        // how the client converges on server truth after its own write: it
+        // closes the case where the server truncated at MAX_MARKS, and the one
+        // where it refused the write because the document had moved on. This
+        // path deliberately issues no write of its own — a save that saved
+        // again on its own reply is the one way this could loop.
+        if (!Array.isArray(body?.bookmarks)) return
+        // A newer toggle already owns the list, or the document was replaced
+        // while this was in flight — responses are not ordered, and painting a
+        // stale one back would either resurrect a mark the user just cleared or
+        // draw another document's indices over this one's text.
+        if (write !== this.bookmarkWrite || docId !== this.doc.doc_id) return
+        this.setMarks(body.bookmarks)
+        this.emit()
+      })
+      // Through the id the toggle's success toast already used, so the error
+      // replaces "Bookmarked sentence N" instead of stacking under a claim it
+      // contradicts.
+      .catch(() => toast.error("Bookmark not saved — is the server running?", { id: BOOKMARK_TOAST }))
   }
 }
 

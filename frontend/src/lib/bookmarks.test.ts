@@ -20,8 +20,16 @@ describe("toggle", () => {
   })
 
   it("does not mutate the input", () => {
-    toggle(marks, 3, "Three.")
-    expect(marks).toHaveLength(2)
+    // Its own array, not the shared `marks`: a snapshot taken here would be a
+    // snapshot of whatever the tests above already did to it.
+    const input: Mark[] = [{ chunk: 2, excerpt: "Two." }, { chunk: 5, excerpt: "Five." }]
+    toggle(input, 3, "Three.")   // the add path
+    toggle(input, 2, "Two.")     // the remove path
+    // toEqual against the whole array, not toHaveLength: the length survives an
+    // in-place sort and a mutated entry alike, and `[...marks, m].sort()` is one
+    // keystroke from `marks.sort()` — which would reorder a list the caller
+    // still holds and every other function here assumes is sorted.
+    expect(input).toEqual([{ chunk: 2, excerpt: "Two." }, { chunk: 5, excerpt: "Five." }])
   })
 })
 
