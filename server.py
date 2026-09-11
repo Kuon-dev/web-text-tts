@@ -27,11 +27,16 @@ from tts.voices import CloneError
 log = logging.getLogger("novel-tts")
 STATIC_DIR = Path(__file__).parent / "static"
 POLL_SECONDS = 1.0
-DEFAULT_STATE = {"positions": {}, "voices": {"kokoro": "af_heart"}, "speed": 1.0,
+DEFAULT_STATE = {"positions": {}, "bookmarks": {}, "voices": {"kokoro": "af_heart"}, "speed": 1.0,
                  "volume": 1.0, "pause_ms": 300, "engine": "kokoro", "device_mode": "auto",
                  "instruct": ""}
 # Silence the player inserts between chunks (= sentences, see chunker.py).
 MAX_PAUSE_MS = 2000
+# Bookmarks per document, and documents kept in the bookmarks map. positions is
+# never pruned and the live state.json already carries orphaned chapters; this
+# map does not inherit that.
+MAX_MARKS = 200
+MAX_BOOKMARK_DOCS = 20
 _ENGINE_DEFAULT_VOICE = {"kokoro": "af_heart", "qwen3": "Ryan"}
 
 # Origins the Tauri desktop shell can present. Starlette matches allow_origins
@@ -94,9 +99,10 @@ class AppState:
         self.image_refs = []
         self.mtime = 0.0
         # dict(DEFAULT_STATE) is a shallow copy: nested containers (positions,
-        # voices) must be copied too, or every AppState would share - and
-        # mutate - the same module-level dicts.
-        self.state = {**DEFAULT_STATE, "positions": {}, "voices": dict(DEFAULT_STATE["voices"])}
+        # bookmarks, voices) must be copied too, or every AppState would share -
+        # and mutate - the same module-level dicts.
+        self.state = {**DEFAULT_STATE, "positions": {}, "bookmarks": {},
+                      "voices": dict(DEFAULT_STATE["voices"])}
         if self.state_path.exists():
             try:
                 loaded = json.loads(self.state_path.read_text())
@@ -105,6 +111,8 @@ class AppState:
                 loaded = migrate_state(loaded)
                 if not isinstance(loaded.get("positions"), dict):
                     loaded.pop("positions", None)
+                if not isinstance(loaded.get("bookmarks"), dict):
+                    loaded.pop("bookmarks", None)
                 if not isinstance(loaded.get("voices"), dict):
                     loaded.pop("voices", None)
                 if not isinstance(loaded.get("speed"), (int, float)) or isinstance(loaded.get("speed"), bool):
@@ -144,6 +152,58 @@ class AppState:
     def position(self) -> int:
         raw = self.state["positions"].get(self.doc_id, 0)
         return max(0, min(raw, max(len(self.chunks) - 1, 0)))
+
+    def bookmarks(self) -> list[dict]:
+        """The current document's marks, sorted, with anything addressing past
+        the end dropped.
+
+        Deliberately unlike position(), which clamps an out-of-range index to
+        the last sentence: for a resume point that is a harmless approximation,
+        but a bookmark silently pointing at the end of the chapter is worse
+        than a bookmark that is gone.
+
+        The stored excerpt is returned as-is rather than re-derived from
+        self.chunks. Re-deriving would make every mark agree with whatever text
+        now sits at that index, which is precisely the drift the client's
+        dropStale exists to catch - and the stored text is what a later
+        re-anchoring pass would have to match on.
+        """
+        raw = self.state["bookmarks"].get(self.doc_id, [])
+        if not isinstance(raw, list):
+            return []
+        out = []
+        for m in raw:
+            if not isinstance(m, dict):
+                continue
+            i = m.get("chunk")
+            if not isinstance(i, int) or isinstance(i, bool) or not 0 <= i < len(self.chunks):
+                continue
+            out.append({"chunk": i, "excerpt": str(m.get("excerpt", ""))})
+        return sorted(out, key=lambda m: m["chunk"])
+
+    def set_bookmarks(self, chunks: list[int]) -> list[dict]:
+        """Replace the current document's marks. Returns what was stored.
+
+        Does not save: every caller already holds st.lock and ends its own
+        mutation with st.save_state().
+        """
+        clean = sorted({i for i in chunks
+                        if isinstance(i, int) and not isinstance(i, bool) and 0 <= i < len(self.chunks)})
+        # Over the cap the first MAX_MARKS in chunk order win. This is a
+        # backstop against a malformed request, not a UX decision - 200 marks
+        # in one chapter is not a real case.
+        clean = clean[:MAX_MARKS]
+        marks = [{"chunk": i, "excerpt": self.chunks[i].text} for i in clean]
+        bm = self.state["bookmarks"]
+        # Recency is dict insertion order, not a stored timestamp: popping
+        # before reinserting is what moves a document to the end, so a chapter
+        # marked again today is not still the first one evicted.
+        bm.pop(self.doc_id, None)
+        if marks:
+            bm[self.doc_id] = marks
+        while len(bm) > MAX_BOOKMARK_DOCS:
+            bm.pop(next(iter(bm)))
+        return marks
 
     def load_doc(self, text: str | None = None):
         """(Re)chunk from `text` or from novel.txt. Under lock."""

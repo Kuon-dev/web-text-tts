@@ -8,7 +8,7 @@ import soundfile as sf
 from fastapi.testclient import TestClient
 
 from chunker import chunk_id
-from server import STATIC_DIR, create_app, migrate_state
+from server import STATIC_DIR, AppState, MAX_BOOKMARK_DOCS, create_app, migrate_state
 from tts.base import Voice
 
 
@@ -138,6 +138,12 @@ def make_app(tmp_path, worker=None, manager=None):
     app = create_app(tmp_path, worker, manager=manager, engines=lambda: FakeManager.CATALOG,
                      voice_ids=_fake_voice_ids)
     return app, worker, manager
+
+
+def make_state(tmp_path):
+    """An AppState with no app around it: create_app keeps its state as a
+    closure local, and these tests exercise the state directly."""
+    return AppState(tmp_path, FakeWorker(tmp_path / "cache"), FakeManager())
 
 
 def test_post_doc_returns_chunks_and_sets_worker(tmp_path):
@@ -515,3 +521,89 @@ def test_save_state_is_atomic(tmp_path):
     # no stray temp files left behind
     assert not list(tmp_path.glob("*.tmp"))
     assert json.loads((tmp_path / "state.json").read_text())["speed"] == 1.5
+
+
+def test_set_bookmarks_sorts_dedupes_and_drops_out_of_range(tmp_path):
+    st = make_state(tmp_path)
+    st.load_doc("One.\nTwo.\nThree.")
+    stored = st.set_bookmarks([2, 0, 2, 99, -1])
+    assert [m["chunk"] for m in stored] == [0, 2]
+    assert stored[0]["excerpt"] == "One."
+    assert stored[1]["excerpt"] == "Three."
+
+
+def test_bookmarks_accessor_drops_indices_past_the_end(tmp_path):
+    # A mark stored against a longer version of the document must never read
+    # back as "the last sentence" the way a position does - a mis-aimed
+    # bookmark is worse than an absent one.
+    #
+    # This is seeded directly into state rather than via two load_doc() calls:
+    # doc_id() hashes the full normalized text (chunker.py), so a genuinely
+    # shorter reload is a different document with its own doc_id, not a
+    # shrunk version of this one - set_bookmarks() would simply be writing
+    # into an unrelated bucket. Poking state directly is the only way to put
+    # a stale, too-long chunk index under *this* doc's *current* doc_id.
+    st = make_state(tmp_path)
+    st.load_doc("One.")
+    st.state["bookmarks"][st.doc_id] = [{"chunk": 0, "excerpt": "One."},
+                                         {"chunk": 2, "excerpt": "Three."}]
+    assert [m["chunk"] for m in st.bookmarks()] == [0]
+
+
+def test_bookmarks_keep_their_stored_excerpt(tmp_path):
+    # The excerpt is what a later re-anchoring pass would match on, so it is
+    # stored, not re-derived: re-deriving it would silently make every mark
+    # agree with whatever text now sits at that index.
+    st = make_state(tmp_path)
+    st.load_doc("One.\nTwo.")
+    st.set_bookmarks([1])
+    st.state["bookmarks"][st.doc_id][0]["excerpt"] = "Something else."
+    assert st.bookmarks()[0]["excerpt"] == "Something else."
+
+
+def test_set_bookmarks_with_an_empty_list_removes_the_entry(tmp_path):
+    st = make_state(tmp_path)
+    st.load_doc("One.\nTwo.")
+    st.set_bookmarks([1])
+    assert st.doc_id in st.state["bookmarks"]
+    assert st.set_bookmarks([]) == []
+    assert st.doc_id not in st.state["bookmarks"]
+
+
+def test_bookmarks_map_prunes_to_the_most_recently_written_docs(tmp_path):
+    st = make_state(tmp_path)
+    first_id = None
+    for n in range(MAX_BOOKMARK_DOCS + 1):
+        st.load_doc(f"Chapter {n}.\nSecond line.")
+        if n == 0:
+            first_id = st.doc_id
+        st.set_bookmarks([0])
+    assert len(st.state["bookmarks"]) == MAX_BOOKMARK_DOCS
+    assert first_id not in st.state["bookmarks"]
+
+
+def test_rewriting_a_doc_refreshes_its_place_in_the_prune_order(tmp_path):
+    # Recency is dict insertion order, not a timestamp - so a write must pop
+    # and reinsert, or a document marked long ago and marked again today would
+    # still be the first one evicted.
+    st = make_state(tmp_path)
+    st.load_doc("Chapter 0.\nSecond line.")
+    oldest = st.doc_id
+    st.set_bookmarks([0])
+    for n in range(1, MAX_BOOKMARK_DOCS):
+        st.load_doc(f"Chapter {n}.\nSecond line.")
+        st.set_bookmarks([0])
+    st.load_doc("Chapter 0.\nSecond line.")     # touch the oldest again
+    st.set_bookmarks([1])
+    st.load_doc("Chapter fresh.\nSecond line.")  # pushes the map over the cap
+    st.set_bookmarks([0])
+    assert oldest in st.state["bookmarks"]
+
+
+def test_malformed_bookmarks_in_state_json_fall_back(tmp_path):
+    (tmp_path / "state.json").write_text(json.dumps({"bookmarks": "not_a_dict"}))
+    st = make_state(tmp_path)
+    st.load_doc("One.\nTwo.")
+    assert st.bookmarks() == []
+    st.set_bookmarks([0])                       # still writable
+    assert [m["chunk"] for m in st.bookmarks()] == [0]
