@@ -607,3 +607,54 @@ def test_malformed_bookmarks_in_state_json_fall_back(tmp_path):
     assert st.bookmarks() == []
     st.set_bookmarks([0])                       # still writable
     assert [m["chunk"] for m in st.bookmarks()] == [0]
+
+
+def test_put_bookmarks_stores_and_returns_them(tmp_path):
+    client, _ = make_client(tmp_path)
+    client.post("/api/doc", json={"text": "One.\nTwo.\nThree."})
+    resp = client.put("/api/bookmarks", json={"chunks": [2, 0]})
+    assert resp.status_code == 200
+    assert resp.json()["bookmarks"] == [
+        {"chunk": 0, "excerpt": "One."},
+        {"chunk": 2, "excerpt": "Three."},
+    ]
+
+
+def test_doc_json_carries_bookmarks(tmp_path):
+    client, _ = make_client(tmp_path)
+    client.post("/api/doc", json={"text": "One.\nTwo.\nThree."})
+    client.put("/api/bookmarks", json={"chunks": [1]})
+    assert client.get("/api/doc").json()["bookmarks"] == [{"chunk": 1, "excerpt": "Two."}]
+
+
+def test_put_bookmarks_clamps_out_of_range_indices(tmp_path):
+    client, _ = make_client(tmp_path)
+    client.post("/api/doc", json={"text": "One.\nTwo."})
+    body = client.put("/api/bookmarks", json={"chunks": [0, 99999, -3]}).json()
+    assert [m["chunk"] for m in body["bookmarks"]] == [0]
+
+
+def test_put_bookmarks_rejects_a_non_integer_list(tmp_path):
+    client, _ = make_client(tmp_path)
+    client.post("/api/doc", json={"text": "One.\nTwo."})
+    assert client.put("/api/bookmarks", json={"chunks": ["nope"]}).status_code == 422
+
+
+def test_bookmarks_are_per_document(tmp_path):
+    client, _ = make_client(tmp_path)
+    client.post("/api/doc", json={"text": "One.\nTwo.\nThree."})
+    client.put("/api/bookmarks", json={"chunks": [2]})
+    client.post("/api/doc", json={"text": "Other chapter."})
+    assert client.get("/api/doc").json()["bookmarks"] == []
+    body = client.post("/api/doc", json={"text": "One.\nTwo.\nThree."}).json()
+    assert [m["chunk"] for m in body["bookmarks"]] == [2]
+
+
+def test_bookmarks_survive_restart(tmp_path):
+    client, _ = make_client(tmp_path)
+    client.post("/api/doc", json={"text": "One.\nTwo.\nThree."})
+    client.put("/api/bookmarks", json={"chunks": [1]})
+    # fresh app over the same data_dir = server restart
+    client2, _ = make_client(tmp_path)
+    client2.post("/api/doc", json={"text": "One.\nTwo.\nThree."})
+    assert [m["chunk"] for m in client2.get("/api/doc").json()["bookmarks"]] == [1]

@@ -74,6 +74,10 @@ class StateBody(BaseModel):
     instruct: str | None = None
 
 
+class BookmarksBody(BaseModel):
+    chunks: list[int]
+
+
 class ImageFetchBody(BaseModel):
     url: str
 
@@ -231,6 +235,7 @@ class AppState:
             "pause_ms": self.state["pause_ms"],
             "instruct": self.state["instruct"],
             "position": self.position(),
+            "bookmarks": self.bookmarks(),
             "chunks": [
                 {"id": chunk_id(ns, c.text), "text": c.text, "para": c.para}
                 for c in self.chunks
@@ -350,6 +355,22 @@ def create_app(data_dir: Path, worker, audio_wait: float = 30.0, *, manager,
         with st.lock:
             st.load_doc(body.text)
             return st.doc_json()
+
+    @app.put("/api/bookmarks")
+    def put_bookmarks(body: BookmarksBody):
+        """Replace the current document's marks.
+
+        Whole-list and idempotent rather than add + delete: toggling is a set
+        operation the client already performs, POST /api/state is patch-shaped
+        and cannot express a removal, and a bare chunk index is not an identity
+        a DELETE could address. pydantic validates the shape; set_bookmarks
+        clamps the range, exactly as post_state clamps a position the accessor
+        would clamp again.
+        """
+        with st.lock:
+            marks = st.set_bookmarks(body.chunks)
+            st.save_state()
+            return {"bookmarks": marks}
 
     @app.get("/api/status")
     def get_status():
