@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react"
+import { toast } from "sonner"
 import {
   api,
   apiUrl,
@@ -49,6 +50,10 @@ export interface PlayerSnapshot {
 const RETRY_MS = 2000
 const POLL_MS = 2000
 const SAVE_DEBOUNCE_MS = 300
+
+/** One id, so repeated presses replace rather than stack — the dock must never
+ *  grow, and transient messages here are toasts, never inline chrome. */
+const BOOKMARK_TOAST = "bookmark"
 
 /** One keyboard nudge of volume or speed. Both share the step, and both match
  *  the dock sliders in dock/Modules.tsx, so the keys land on the same grid the
@@ -343,9 +348,15 @@ class PlayerEngine {
   toggleBookmark() {
     const chunk = this.doc.chunks[this.idx]
     if (!chunk) return
-    this.setMarks(toggle(this.marks, this.idx, chunk.text))
+    const next = toggle(this.marks, this.idx, chunk.text)
+    const added = next.length > this.marks.length
+    this.setMarks(next)
     this.emit()
     this.saveBookmarks()
+    toast.message(added ? `Bookmarked sentence ${this.idx + 1}` : `Bookmark removed`, {
+      id: BOOKMARK_TOAST,
+      duration: 1600,
+    })
   }
 
   nextBookmark() {

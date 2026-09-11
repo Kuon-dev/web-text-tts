@@ -14,7 +14,8 @@ Paste a chapter (button in the dock along the bottom, or edit `novel.txt`), pres
   combo has a bare-key twin (`k`, `,`, `p`) because Chrome keeps `⌘,` for its own
   settings and never delivers it to the page. `⇧↑`/`⇧↓` volume (bare arrows keep
   scrolling), `m` mute, `[`/`]` speed, `v` voice, `e` model — volume and speed
-  changes show a transient readout above the dock.
+  changes show a transient readout above the dock. `b` bookmarks the sentence
+  being read, `n`/`⇧N` step between bookmarks, `⇧B` lists them.
 - Dock (the only chrome, sketchybar-style, three brackets on a clickable
   chapter-progress rail): left — a level meter that dances while the voice
   reads, Paste chapter, Settings; middle — transport, elapsed / total time,
@@ -35,6 +36,11 @@ Paste a chapter (button in the dock along the bottom, or edit `novel.txt`), pres
   auto-scroll, wallpaper fit / position / opacity, narrator and engine. Saved in
   the browser; Esc or the back button returns to the chapter.
 - Position (per chapter), voice, speed, volume, and sentence pause are saved — close anything, it resumes.
+- Bookmarks (per chapter) mark a line to come back to: a bar in the margin, a
+  tick on the progress rail, and a searchable list in the palette. They live in
+  `state.json` beside the position, so the browser and the desktop app see the
+  same marks. A re-pasted or edited chapter is a new document, and its marks
+  start empty.
 - Audio cache: `cache/` (2 GiB cap, auto-evicted). Switching engine, changing style
   instruction, or replacing a clone's reference clip regenerates that voice's
   cached audio. State: `state.json`.
