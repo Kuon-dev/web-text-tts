@@ -153,3 +153,27 @@ def test_fetch_page_propagates_a_fetch_failure(st, monkeypatch):
     monkeypatch.setattr(mcp_tools, "fetch_html", boom)
     with pytest.raises(PageError, match="download failed"):
         mcp_tools.fetch_page(st, "https://example.com/ch1")
+
+
+def test_append_text_carries_bookmarks_to_the_new_doc_id(st):
+    # An append mints a new doc_id but preserves the chunk prefix, so every
+    # stored index stays valid.
+    st.set_bookmarks([1])
+    mcp_tools.append_text(st, "Third line.")
+    assert [m["chunk"] for m in st.bookmarks()] == [1]
+
+
+def test_append_text_keeps_a_position_of_zero(st):
+    # The carry used to be guarded with `if pos:`, which silently dropped a
+    # saved position of 0 - and would drop a bookmark on the first sentence.
+    st.state["positions"][st.doc_id] = 0
+    st.load_doc()
+    out = mcp_tools.append_text(st, "Third line.")
+    assert out["position"] == 0
+    assert st.state["positions"][st.doc_id] == 0
+
+
+def test_append_text_carries_a_bookmark_on_the_first_sentence(st):
+    st.set_bookmarks([0])
+    mcp_tools.append_text(st, "Third line.")
+    assert [m["chunk"] for m in st.bookmarks()] == [0]

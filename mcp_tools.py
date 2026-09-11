@@ -73,17 +73,25 @@ def load_text(st, text: str) -> dict:
 def append_text(st, text: str) -> dict:
     """Add a section to the end of the document, keeping the listener's place.
 
-    positions is keyed by doc_id and doc_id is a hash of the text, so an append
-    mints a new key: without carrying the old position over first, load_doc
-    would hand the worker position 0 and the reader would jump to the top.
+    positions and bookmarks are both keyed by doc_id and doc_id is a hash of
+    the text, so an append mints a new key: without carrying the old entries
+    over first, load_doc would hand the worker position 0 and the reader would
+    jump to the top, and every mark in the chapter would vanish. An append
+    preserves the chunk prefix, so every stored index stays valid.
     """
     text = _require_text(text)
     with st.lock:
         base = st.text.strip()
         combined = f"{base}\n\n{text}" if base else text
+        new_id = _doc_id(combined)
         pos = st.state["positions"].get(st.doc_id)
-        if pos:
-            st.state["positions"][_doc_id(combined)] = pos
+        # `is not None`, not truthiness: position 0 is a real position, and a
+        # bookmark on the first sentence is a real bookmark.
+        if pos is not None:
+            st.state["positions"][new_id] = pos
+        marks = st.state["bookmarks"].get(st.doc_id)
+        if marks:
+            st.state["bookmarks"][new_id] = marks
         st.load_doc(combined)
         st.save_state()
         return _summary(st)
