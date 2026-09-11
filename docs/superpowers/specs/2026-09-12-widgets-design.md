@@ -157,7 +157,7 @@ export interface LayoutState {
 export interface LayoutEnv { vw: number; vh: number; readerW: number; dockH: number; rem: number }
 
 enable(s, id, geom) · disable(s, id) · raise(s, id) · move(s, id, geom) · toggleHidden(s)
-placeNew(meta, s, env): PanelGeom
+placeNew(meta, s, sizes: Record<string, {w; h}>, env): PanelGeom   // sizes in rem, from the manifest
 clampAll(s, sizes: Record<string, {w; h}>, env): LayoutState
 parseLayout(raw: unknown, knownIds: readonly string[]): LayoutState
 ```
@@ -304,8 +304,8 @@ export type State =
   | { status: "idle";    phase: Phase; round: number }
   | { status: "running"; phase: Phase; round: number; endsAt: number }
   | { status: "paused";  phase: Phase; round: number; remainingMs: number }
-start(s, cfg, now) · pause(s, now) · resume(s, now) · skip(s, cfg) · reset()
-remaining(s, now): number                                  // ms, never negative
+start(s, cfg, now) · pause(s, now) · resume(s, now) · skip(s, cfg, now): { state: State; entered: Phase } · reset()   // skip is a transition too: same toast / pause rules
+remaining(s, cfg, now): number                             // ms, never negative; a full phase when idle
 advance(s, cfg, now): { state: State; entered: Phase | null }
 nextPhase(phase, round, cfg): { phase: Phase; round: number }
 parseSession(raw, now): { config: Config; state: State } | null
