@@ -16,7 +16,9 @@ interface Props {
 
 /** How close a click must land to a tick to mean that mark rather than the
  *  sentence under the pixel. The rail is 4px tall, so the ticks are far too
- *  small to be hit targets of their own — the rail snaps instead. */
+ *  small to be hit targets of their own — the rail snaps instead. When two
+ *  marks fall within 2×SNAP_PX of each other, snap picks the nearest, not the
+ *  first — a click at the later mark lands on it, not the earlier one. */
 const SNAP_PX = 6
 
 /** Chapter progress as the bar's top edge; click anywhere on it to jump.
@@ -29,7 +31,10 @@ function ProgressRail({ n, idx, marks }: { n: number; idx: number; marks: readon
     if (!n) return
     const r = e.currentTarget.getBoundingClientRect()
     const x = e.clientX - r.left
-    const near = marks.find((m) => Math.abs((at(m.chunk) / 100) * r.width - x) <= SNAP_PX)
+    const near = marks.reduce<{ chunk: number; d: number } | null>((best, m) => {
+      const d = Math.abs((at(m.chunk) / 100) * r.width - x)
+      return d <= SNAP_PX && (!best || d < best.d) ? { chunk: m.chunk, d } : best
+    }, null)
     player.jump(near ? near.chunk : Math.round((x / r.width) * (n - 1)))
   }
   return (
