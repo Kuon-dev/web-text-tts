@@ -2,6 +2,7 @@ import { useLayoutEffect, useRef } from "react"
 import type { MouseEvent } from "react"
 import { m } from "motion/react"
 import { player, usePlayer } from "@/lib/player"
+import type { Mark } from "@/lib/bookmarks"
 import { NarrationBracket, StatusBracket } from "./Modules"
 import { NowPlaying } from "./NowPlaying"
 import { SystemBracket } from "./SystemBracket"
@@ -13,14 +14,23 @@ interface Props {
   onPasteClick: () => void
 }
 
-/** Chapter progress as the bar's top edge; click anywhere on it to jump. */
-function ProgressRail({ n, idx }: { n: number; idx: number }) {
+/** How close a click must land to a tick to mean that mark rather than the
+ *  sentence under the pixel. The rail is 4px tall, so the ticks are far too
+ *  small to be hit targets of their own — the rail snaps instead. */
+const SNAP_PX = 6
+
+/** Chapter progress as the bar's top edge; click anywhere on it to jump.
+ *  Bookmarks ride it as ticks, so the marks in a chapter are visible without
+ *  opening anything. */
+function ProgressRail({ n, idx, marks }: { n: number; idx: number; marks: readonly Mark[] }) {
   const pct = n ? ((idx + 1) / n) * 100 : 0
+  const at = (chunk: number) => (n > 1 ? (chunk / (n - 1)) * 100 : 0)
   const scrub = (e: MouseEvent<HTMLDivElement>) => {
     if (!n) return
     const r = e.currentTarget.getBoundingClientRect()
-    const ratio = (e.clientX - r.left) / r.width
-    player.jump(Math.round(ratio * (n - 1)))
+    const x = e.clientX - r.left
+    const near = marks.find((m) => Math.abs((at(m.chunk) / 100) * r.width - x) <= SNAP_PX)
+    player.jump(near ? near.chunk : Math.round((x / r.width) * (n - 1)))
   }
   return (
     <div
@@ -44,6 +54,17 @@ function ProgressRail({ n, idx }: { n: number; idx: number }) {
           className="pointer-events-none absolute top-1/2 right-0 size-2.5 translate-x-1/2 -translate-y-1/2 rounded-full bg-foreground opacity-0 shadow-sm transition-opacity duration-300 group-hover/progress:opacity-100"
         />
       </m.div>
+      {/* After the fill, so a tick inside the read-so-far stretch still reads.
+          Neutral rather than accented: the five --ac-* slots belong to the dock
+          modules and --accent-base is playback state. */}
+      {marks.map((m) => (
+        <div
+          key={m.chunk}
+          aria-hidden
+          className="pointer-events-none absolute inset-y-0 w-0.5 -translate-x-1/2 rounded-full bg-foreground/45"
+          style={{ left: `${at(m.chunk)}%` }}
+        />
+      ))}
     </div>
   )
 }
@@ -54,7 +75,7 @@ function ProgressRail({ n, idx }: { n: number; idx: number }) {
  *  status modules (readout, volume, speed, clock) on the right. It is the
  *  only chrome on screen; everything the top bar held lives here now. */
 export function Dock({ showClock, settingsOpen, onSettingsClick, onPasteClick }: Props) {
-  const { chunks, idx } = usePlayer()
+  const { chunks, idx, bookmarks } = usePlayer()
 
   // The dock is fixed, so nothing else can size itself around it. It
   // publishes its height (bar plus the gap under it) as --dock-h on <html>;
@@ -80,7 +101,7 @@ export function Dock({ showClock, settingsOpen, onSettingsClick, onPasteClick }:
         transition={{ type: "spring", stiffness: 300, damping: 28, delay: 0.04 }}
         className="overflow-hidden rounded-lg border bg-card/85 backdrop-blur"
       >
-        <ProgressRail n={chunks.length} idx={idx} />
+        <ProgressRail n={chunks.length} idx={idx} marks={bookmarks} />
         {/* Below lg the groups spread with flex so nothing can overlap; from
             lg up the grid pins the transport to the exact center, with the
             two setup brackets on the left and the status bracket on the right
