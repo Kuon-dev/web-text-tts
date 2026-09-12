@@ -221,10 +221,12 @@ export function Reader({ prefs, onPasteClick }: Props) {
                       key={i}
                       id={`c${i}`}
                       data-chunk={i}
-                      // WebKit — which is what the desktop app runs — fires a
-                      // click alongside contextmenu for a Mac ctrl-click, so
-                      // without this guard opening the menu would also jump
-                      // the voice to that line.
+                      // A Mac ctrl-click reaches the two engines differently:
+                      // Chromium sends contextmenu alone and swallows the
+                      // click (measured over CDP), while WebKit — the desktop
+                      // app's engine — is reported to send both. The guard is
+                      // inert on the first and keeps the second from jumping
+                      // the voice as the menu opens.
                       onClick={(e) => !e.ctrlKey && player.clickChunk(i)}
                       className={cn(
                         "rd-chunk cursor-pointer rounded-sm box-decoration-clone px-0.5",

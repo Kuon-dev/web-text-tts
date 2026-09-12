@@ -8,7 +8,8 @@ Local audiobook player for pasted light-novel text. Kokoro-82M / Qwen3-TTS, brow
 
 Paste a chapter (button in the dock along the bottom, or edit `novel.txt`), press Play.
 
-- Space = play/pause · ←/→ = skip chunk · click any sentence to jump
+- Space = play/pause · ←/→ = skip chunk · click any sentence to jump ·
+  right-click one to bookmark, play, or copy it
 - Keyboard: `?` shows the full sheet. `⌘K` opens the command palette (voice and
   model pages, every action searchable), `⌘,` settings, `⌘P` paste. Each `⌘`
   combo has a bare-key twin (`k`, `,`, `p`) because Chrome keeps `⌘,` for its own
@@ -37,10 +38,11 @@ Paste a chapter (button in the dock along the bottom, or edit `novel.txt`), pres
   the browser; Esc or the back button returns to the chapter.
 - Position (per chapter), voice, speed, volume, and sentence pause are saved — close anything, it resumes.
 - Bookmarks (per chapter) mark a line to come back to: a bar in the margin, a
-  tick on the progress rail, and a searchable list in the palette. They live in
-  `state.json` beside the position, so the browser and the desktop app see the
-  same marks. A re-pasted or edited chapter is a new document, and its marks
-  start empty.
+  tick on the progress rail, and a searchable list in the palette. `b` marks the
+  line being read; right-clicking any sentence marks that one instead and leaves
+  the voice where it is. They live in `state.json` beside the position, so the
+  browser and the desktop app see the same marks. A re-pasted or edited chapter
+  is a new document, and its marks start empty.
 - Audio cache: `cache/` (2 GiB cap, auto-evicted). Switching engine, changing style
   instruction, or replacing a clone's reference clip regenerates that voice's
   cached audio. State: `state.json`.
