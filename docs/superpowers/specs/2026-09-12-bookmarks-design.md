@@ -54,7 +54,7 @@ cap the server keeps the first 200 in chunk order — a backstop against a
 malformed request, not a UX decision; 200 marks in one chapter is not a real
 case.
 
-The map keeps `MAX_DOCS = 20` documents. Recency is dict insertion order, not
+The map keeps `MAX_BOOKMARK_DOCS = 20` documents. Recency is dict insertion order, not
 a stored timestamp: a write pops its `doc_id` and reinserts it so the entry
 moves to the end, then the map is trimmed from the front. `positions` is
 never pruned and the live `state.json` already carries three orphaned
@@ -93,7 +93,7 @@ element cannot leave a half-written list:
    `0 ≤ i < len(chunks)`; dedupe; sort; truncate to `MAX_MARKS`.
 2. **Apply** — `with st.lock:` write `st.state["bookmarks"][st.doc_id]`, each
    entry's `excerpt` taken from `self.chunks[i].text` (the client never sends
-   text), prune the map to `MAX_DOCS`, `st.save_state()`.
+   text), prune the map to `MAX_BOOKMARK_DOCS`, `st.save_state()`.
 
 An empty list is a valid request and removes the document's entry.
 
@@ -110,9 +110,12 @@ trip and no new polling.
 ### Carry across an append — `mcp_tools.py`
 
 `append_text` mints a new `doc_id` (it is a sha1 of the whole text,
-`chunker.py:91`) and already copies the old position onto it. It copies the
-bookmark list the same way; an append preserves the chunk prefix, so every
-stored index stays valid and every excerpt still matches.
+`chunker.py:91`) and already copies the old position onto it. It *moves* the
+bookmark list rather than copying it: the old `doc_id`'s entry is popped before
+the new one is written, which keeps the map size-neutral against
+`MAX_BOOKMARK_DOCS` — one key out, one key in — and the old key names text no
+longer loadable. An append preserves the chunk prefix, so every stored index
+stays valid and every excerpt still matches.
 
 `mcp_tools.py:85` guards the position carry with `if pos:`, which silently
 drops a saved position of `0`. Fixed to `is not None` in passing — the same
@@ -133,7 +136,7 @@ export interface Mark { chunk: number; excerpt: string }
 export function toggle(marks: readonly Mark[], chunk: number, excerpt: string): Mark[]
 export function nextAfter(marks: readonly Mark[], idx: number): number | null   // wraps
 export function prevBefore(marks: readonly Mark[], idx: number): number | null  // wraps
-export function dropStale(marks: readonly Mark[], chunks: readonly Chunk[]): Mark[]
+export function dropStale(marks: readonly Mark[], chunks: readonly { text: string }[]): Mark[]  // structural, not `Chunk`: api.ts imports `Mark` from here
 export function indexSet(marks: readonly Mark[]): ReadonlySet<number>
 ```
 
@@ -144,15 +147,22 @@ that case is silent rather than wrong.
 
 ### `src/lib/player.ts`
 
-`PlayerSnapshot` (`:19-39`) gains `bookmarks: ReadonlySet<number>` — a `Set`,
-because the reader probes it per sentence. `Doc` in `lib/api.ts` gains the
-matching optional field.
+`PlayerSnapshot` (`:28-55`) gains two fields: `bookmarks: readonly Mark[]`, the
+ordered list with its excerpts, which is what the ⇧B page renders, and
+`bookmarkSet: ReadonlySet<number>`, the same marks as positions — carried
+separately, and kept in step by `setMarks`, because the reader probes it once
+per sentence span and deriving a `Set` per render is exactly the cost that
+avoids. `Doc` in `lib/api.ts` gains the matching optional `bookmarks?: Mark[]`.
 
-Four methods on the singleton: `toggleBookmark()`, `nextBookmark()`,
-`prevBookmark()`, `jumpToBookmark(i)`. `toggleBookmark` marks
-`this.idx` — the sentence the voice is on — and the three that move call
-`jump()`. Writes go out debounced and `keepalive: true`, the way
-`savePosition` does (`:553-569`), so a mark survives a webview teardown.
+Three methods on the singleton: `toggleBookmark()`, `nextBookmark()`,
+`prevBookmark()`. The palette needs no fourth: going to a bookmark is moving
+the playhead, which is `jump()` — the same call a sentence click makes. `toggleBookmark` marks
+`this.idx` — the sentence the voice is on — and the two that move call
+`jump()`. Writes go out with `keepalive: true`, the way
+`savePosition` does (`:621-639`), so a mark survives a webview teardown — but
+un-debounced, unlike it: a toggle is a discrete action rather than a moving
+value, so a debounce would only add a window in which the mark can be lost, and
+the request is whole-list and idempotent so repeated presses converge anyway.
 
 `loadDoc` runs the incoming list through `dropStale` before building the set.
 
@@ -164,9 +174,9 @@ both the ⌘K palette and the `?` sheet generate themselves from:
 | id | key | label | group | scope |
 |---|---|---|---|---|
 | `bookmark-toggle` | `b` | Toggle bookmark | Bookmarks | reader |
-| `bookmark-next` | `n` | Next bookmark | Bookmarks | reader |
 | `bookmark-prev` | `⇧N` | Previous bookmark | Bookmarks | reader |
-| `bookmark-list` | `⇧B` | Bookmarks | Bookmarks | reader |
+| `bookmark-next` | `n` | Next bookmark | Bookmarks | reader |
+| `bookmark-list` | `⇧B` | Bookmarks… | Bookmarks | reader |
 
 `Group` gains a `"Bookmarks"` member. Four rows would swell `Playback`, and
 the union is closed precisely so the sheet's headings stay enumerable;
@@ -174,11 +184,12 @@ declaration order in `ACTIONS` sets where the group lands in both UIs. All
 four are `reader`-scoped, matching `voice` and `model` — the existing actions
 that open a palette page — so none of them fire while settings is open.
 
-`bookmark-prev` carries `pair: { with: "bookmark-next" }` so the sheet renders
-one row. `b`, `n` and `⇧B` are unclaimed — taken are `k , p ? space ← → ↑ ↓ m
+`bookmark-prev` carries `pair: { with: "bookmark-next", label: "Previous / next
+bookmark" }` so the sheet renders one row, and is declared ahead of its sibling
+because `pair` goes on the first half only. `b`, `n` and `⇧B` are unclaimed — taken are `k , p ? space ← → ↑ ↓ m
 [ ] v e`, and `z` is pinned unbound by a test. Letters compare
-case-insensitively and require shift *off* (`keymap.ts:228`), so `n` and `⇧N`
-separate cleanly; the shift-fallthrough at `:227` only bites non-letter specs
+case-insensitively and require shift *off* (`keymap.ts:278`), so `n` and `⇧N`
+separate cleanly; the shift-fallthrough at `:277` only bites non-letter specs
 like the arrows, which is why `⇧←` would need declaring above `prev-sentence`
 and `⇧N` does not.
 
@@ -197,27 +208,42 @@ sentence.
 
 ### The reader — `Reader.tsx:206`
 
-One extra class token on the sentence span, from `bookmarks.has(i)`:
+One extra class token on the sentence span, from `bookmarkSet.has(i)` — the
+snapshot's `bookmarks` is the ordered list the palette and the rail read:
 
 ```tsx
 className={cn("rd-chunk cursor-pointer rounded-sm box-decoration-clone px-0.5",
-              marked.has(i) && "rd-marked", …)}
+              bookmarkSet.has(i) && "rd-marked", …)}
 ```
 
 An O(1) `Set` probe and nothing else. That tree is ~10k spans re-rendered on
 every 2s poll and twice per sentence advance; an array `.some()` inside the
-map, a per-span motion component, or a per-sentence observer is what produced
-the ~600ms main-thread block recorded in `index.css`.
+map, a per-span motion component, or a per-sentence observer is the same
+per-element cost the chapter entrance already paid for once: one motion
+component per paragraph blocked the main thread for ~600ms, recorded in
+`index.css`.
 
-`.rd-marked::before` draws the bar: an `inline-block` rule with a
-compensating negative `margin-inline-start` so the text does not shift. A
+`.rd-marked::before` draws the bar: an `inline-block` rule whose negative
+`margin-inline-start` is exactly the bar's own 2px and exactly `.rd-chunk`'s
+`px-0.5`, so the marked sentence's own left edge does not move. It is not free
+though — nothing cancels the 0.3em `margin-inline-end`, so the span comes out
+0.3em wider and the text after it in the paragraph shifts right by that much:
+marking never moves the sentence you marked, but it can move what follows. A
 `border-left` or an inset `box-shadow` would repeat on every wrapped line
 fragment under the existing `box-decoration-clone`.
 
 ### The dock rail — `Dock.tsx:16`
 
 Absolutely-positioned 2px ticks inside `ProgressRail` at `left: i/(n-1)`,
-`pointer-events-none`, `bg-foreground` at reduced opacity. All five `--ac-*`
+`pointer-events-none`, `bg-foreground` at reduced opacity, centred on their
+position with `-translate-x-1/2` — except the first and last sentence's, which
+hang inward instead (no shift at chunk 0, `-translate-x-full` at chunk `n-1`):
+centred there, half of the 2px falls outside the rail's box, where the dock's
+`rounded-lg overflow-hidden` clips it, and marking a chapter's opening or
+closing line is entirely ordinary. Chunk 0 is tested first because in a
+one-sentence chapter it is also the last. The snap below still measures to
+`at(m.chunk)`, so an end tick's drawn centre sits 1px off what the snap aims
+at — immaterial against `SNAP_PX`. All five `--ac-*`
 accent slots are assigned to the dock modules and `--accent-base` is reserved
 for playback state, so no new hue is minted.
 
@@ -231,7 +257,11 @@ does not change; `--dock-h` is unaffected.
 One sonner toast with a stable id, replacing itself on each press — the
 documented pattern for transient messages, since the dock must never grow.
 It covers the case where auto-scroll is off and the marked line is off-screen,
-where the mark alone would be invisible.
+where the mark alone would be invisible. Two more messages share that id rather
+than stacking beside it: `n`/`⇧N` on a chapter with no marks says so, because a
+key that returns in silence is indistinguishable from one bound to nothing; and
+a failed write reports through the id the success already used, so the error
+replaces the claim it contradicts instead of sitting under it.
 
 ## Integration
 
@@ -240,7 +270,10 @@ where the mark alone would be invisible.
 - `mcp_tools.py` — carry on `append_text`; the `if pos:` fix.
 - `lib/bookmarks.ts` (new), `lib/player.ts`, `lib/api.ts`, `lib/keymap.ts`,
   `components/CommandPalette.tsx`, `components/Reader.tsx`,
-  `components/dock/Dock.tsx`, `App.tsx`, `index.css`.
+  `components/dock/Dock.tsx`, `index.css`. Not `App.tsx`: its `ctx` is a
+  `useMemo<KeymapCtx>` literal, so `openPalettePage`'s parameter is contextually
+  typed and the widened union reaches it for free.
+- `README.md` — the key list gains `b`, `n`/`⇧N` and `⇧B`.
 - `npm run build -w frontend` emits into `../static`, which FastAPI serves.
   The repo keeps that as its own `build: ship …` commit.
 
@@ -255,19 +288,36 @@ Python — flat `def test_<sentence>(tmp_path)` functions in
 - `doc_json` emits them
 - `append_text` carries them onto the new `doc_id`, **including a bookmark on
   sentence 0**
-- the map prunes to `MAX_DOCS`
+- the map prunes to `MAX_BOOKMARK_DOCS`, and a document marked again moves back
+  to the end of that order instead of staying first to be evicted
+- a write naming another document is ignored and answered `200` with the current
+  marks; one naming the current document, or naming none, is written
+- a non-integer list is refused `422`
+- marks are per-document, and a `bookmarks` key that is not a dict reads as empty
+  while staying writable
+- the accessor drops an index past the end, dedupes a hand-edited duplicate, and
+  returns the stored excerpt rather than re-deriving it
 
 Vitest — `lib/bookmarks.test.ts`: toggle adds and removes; `nextAfter` /
 `prevBefore` wrap at both ends and return `null` on an empty list; `dropStale`
 removes an index out of range and a mark whose excerpt has drifted.
+`lib/player.test.ts` pins what only the engine can be asked: the PUT names its
+document and is `keepalive`; the reply is re-anchored through `dropStale` rather
+than adopted, and issues no write of its own; another document's marks are not
+painted over this one; a non-2xx reports through the toggle's own toast id; an
+unparseable body says nothing; and `n` on an unmarked chapter speaks.
+`lib/keymap.test.ts` gains a `bookmarks` block: the four bindings, `⇧N` and `⇧B`
+surviving Caps Lock, standing down while a chapter is being pasted, and each
+action making its player call.
 
 Two existing tests need updating, both honest pins rather than collateral:
 
 - `keymap.test.ts:295` asserts the paired actions are exactly
   `["prev-sentence", "volume-up", "speed-down"]` — becomes four.
 - the player mock at `keymap.test.ts:9-18` has six methods and a snapshot of
-  `{idx: 3}`; the new methods and `bookmarks` must be added or the actions
-  throw `TypeError`.
+  `{idx: 3}`; `toggleBookmark`, `nextBookmark` and `prevBookmark` must be added
+  or those actions throw `TypeError`. The snapshot needs nothing — no bookmark
+  action reads it, `bookmark-list` going out through `ctx.openPalettePage`.
 
 ## Non-goals
 
