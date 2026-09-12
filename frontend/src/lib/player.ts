@@ -696,7 +696,15 @@ class PlayerEngine {
         // stale one back would either resurrect a mark the user just cleared or
         // draw another document's indices over this one's text.
         if (write !== this.bookmarkWrite || docId !== this.doc.doc_id) return
-        this.setMarks(body.bookmarks)
+        // Re-anchored, not adopted wholesale. The guard above cannot catch a
+        // refused write: the server answers a doc_id mismatch with the CURRENT
+        // document's marks, and `this.doc.doc_id` only refreshes on the 2s
+        // status poll — so after a swap both sides of that comparison still
+        // read as the old document and the reply sails through. dropStale is a
+        // no-op on the normal path (the same doc_id means the same chunk text,
+        // chunker.py) and drops every index on the refused one, because another
+        // chapter's excerpts cannot match this chapter's sentences.
+        this.setMarks(dropStale(body.bookmarks, this.doc.chunks))
         this.emit()
       })
       // Through the id the toggle's success toast already used, so the error

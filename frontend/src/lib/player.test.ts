@@ -603,6 +603,24 @@ it("converges on the list the server stored, and does not write again doing it",
   expect(puts().length).toBe(1)
 })
 
+it("will not paint another document's marks over this one", async () => {
+  // The in-flight guard cannot catch a refused write. The server answers a
+  // doc_id mismatch with the CURRENT document's marks, and `this.doc.doc_id`
+  // only refreshes on the 2s status poll — so after a swap both sides of that
+  // comparison still read as the old document and the reply sails through.
+  // Only the excerpts can tell the difference: another chapter's sentences
+  // cannot match this chapter's, which is what dropStale is for.
+  const { player, answerWith } = await bootForBookmarks()
+  answerWith({ ok: true, body: { bookmarks: [{ chunk: 1, excerpt: "A sentence from a different chapter." }] } })
+
+  player.toggleBookmark() // optimistically marks sentence 1 (index 0)
+  await vi.advanceTimersByTimeAsync(0)
+
+  // Not chunk 1 — that index belongs to a document this reader is not showing.
+  expect(player.getSnapshot().bookmarks).toEqual([])
+  expect(player.getSnapshot().bookmarkSet.has(1)).toBe(false)
+})
+
 it("says a bookmark was not saved, in place of the success it already claimed", async () => {
   // fetch only rejects on a network failure, so a 500 (or a 422) resolves
   // normally and the old `.catch(() => {})` swallowed it. Unlike a position —
