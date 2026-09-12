@@ -51,13 +51,13 @@ export function Reader({ prefs, onPasteClick }: Props) {
   // can fade out slower than the new one fades in (trailing highlight).
   const [trackedIdx, setTrackedIdx] = useState(idx)
   const [prevIdx, setPrevIdx] = useState(-1)
-
-  // The sentence the right-click menu is open on, or null when it is shut.
-  const [menuTarget, setMenuTarget] = useState<ChunkTarget | null>(null)
   if (trackedIdx !== idx) {
     setPrevIdx(trackedIdx)
     setTrackedIdx(idx)
   }
+
+  // The sentence the right-click menu is open on, or null when it is shut.
+  const [menuTarget, setMenuTarget] = useState<ChunkTarget | null>(null)
 
   const blocks = useMemo<Block[]>(() => {
     const groups: Block[] = []
