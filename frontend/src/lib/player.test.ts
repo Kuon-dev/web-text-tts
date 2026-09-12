@@ -655,3 +655,64 @@ it("says there is nothing to step to rather than looking like a dead key", async
   expect(toast.message).toHaveBeenCalledTimes(2)
   expect(toast.message).toHaveBeenLastCalledWith(expect.stringContaining("No bookmarks"), expect.objectContaining({ id: "bookmark" }))
 })
+
+it("marks the sentence the pointer hit, leaving the voice where it is", async () => {
+  // The reader's context menu bookmarks whatever line was right-clicked, which
+  // is the gesture `b` cannot make: `b` only ever marks the sentence being
+  // read. So the index has to come in as an argument, and taking it must not
+  // move the playhead — the whole point is to mark a line you are not at.
+  const { player, toast } = await bootForBookmarks()
+
+  player.toggleBookmark(2)
+  await vi.advanceTimersByTimeAsync(0)
+
+  expect(player.getSnapshot().bookmarks).toEqual([{ chunk: 2, excerpt: "Three." }])
+  expect(player.getSnapshot().bookmarkSet.has(2)).toBe(true)
+  expect(player.getSnapshot().idx).toBe(0)
+  expect(toast.message).toHaveBeenCalledWith("Bookmarked sentence 3", expect.objectContaining({ id: "bookmark" }))
+})
+
+it("un-marks that same sentence on a second pass, so the menu row is a toggle", async () => {
+  const { player, toast } = await bootForBookmarks()
+
+  player.toggleBookmark(2)
+  await vi.advanceTimersByTimeAsync(0)
+  // Asserted mid-way on purpose: ending up empty is also what toggling the
+  // *current* sentence twice would do, so without this line the test passes
+  // against an implementation that ignores the argument entirely.
+  expect(player.getSnapshot().bookmarks).toEqual([{ chunk: 2, excerpt: "Three." }])
+
+  player.toggleBookmark(2)
+  await vi.advanceTimersByTimeAsync(0)
+
+  expect(player.getSnapshot().bookmarks).toEqual([])
+  expect(player.getSnapshot().bookmarkSet.has(2)).toBe(false)
+  expect(toast.message).toHaveBeenLastCalledWith("Bookmark removed", expect.objectContaining({ id: "bookmark" }))
+})
+
+it("ignores an index no sentence answers to, rather than storing a mark that points nowhere", async () => {
+  // A stale `data-chunk` read off a span mid-reload is the realistic way this
+  // arrives. The server would drop such a mark anyway; writing it at all would
+  // spend one of the twenty per-document slots on nothing.
+  const { player, toast, puts } = await bootForBookmarks()
+
+  player.toggleBookmark(99)
+  player.toggleBookmark(-1)
+  await vi.advanceTimersByTimeAsync(0)
+
+  expect(player.getSnapshot().bookmarks).toEqual([])
+  expect(puts()).toHaveLength(0)
+  expect(toast.message).not.toHaveBeenCalled()
+})
+
+it("still means the sentence being read when called with no index, so `b` is unchanged", async () => {
+  // The default is read at call time, not bound once at construction.
+  const { player, toast } = await bootForBookmarks()
+
+  player.clickChunk(1)
+  player.toggleBookmark()
+  await vi.advanceTimersByTimeAsync(0)
+
+  expect(player.getSnapshot().bookmarks).toEqual([{ chunk: 1, excerpt: "Two." }])
+  expect(toast.message).toHaveBeenCalledWith("Bookmarked sentence 2", expect.objectContaining({ id: "bookmark" }))
+})

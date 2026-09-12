@@ -354,16 +354,22 @@ class PlayerEngine {
     this.jump(i)
   }
 
-  /** Mark (or unmark) the sentence the voice is on. */
-  toggleBookmark() {
-    const chunk = this.doc.chunks[this.idx]
+  /** Mark (or unmark) a sentence — by default the one the voice is on, which is
+   *  what `b` means. The reader's context menu passes the line that was
+   *  right-clicked instead, and marking it deliberately leaves the playhead
+   *  alone: flagging a line you are *not* at is the gesture `b` cannot make.
+   *
+   *  An index no chunk answers to is ignored rather than stored. A negative
+   *  index lands here too, since `chunks[-1]` is simply undefined. */
+  toggleBookmark(at = this.idx) {
+    const chunk = this.doc.chunks[at]
     if (!chunk) return
-    const next = toggle(this.marks, this.idx, chunk.text)
+    const next = toggle(this.marks, at, chunk.text)
     const added = next.length > this.marks.length
     this.setMarks(next)
     this.emit()
     this.saveBookmarks()
-    toast.message(added ? `Bookmarked sentence ${this.idx + 1}` : `Bookmark removed`, {
+    toast.message(added ? `Bookmarked sentence ${at + 1}` : `Bookmark removed`, {
       id: BOOKMARK_TOAST,
       duration: 1600,
     })
