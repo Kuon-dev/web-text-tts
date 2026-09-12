@@ -1,6 +1,7 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type WheelEvent } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type MouseEvent, type WheelEvent } from "react"
 import { BookOpenText, ClipboardPaste } from "lucide-react"
 import { m } from "motion/react"
+import { ChunkContextMenu, type ChunkTarget } from "@/components/ChunkContextMenu"
 import { TILE_FRAME } from "@/components/tile"
 import { Button } from "@/components/ui/button"
 import { imageUrl, type Chunk, type ImageRef } from "@/lib/api"
@@ -50,6 +51,9 @@ export function Reader({ prefs, onPasteClick }: Props) {
   // can fade out slower than the new one fades in (trailing highlight).
   const [trackedIdx, setTrackedIdx] = useState(idx)
   const [prevIdx, setPrevIdx] = useState(-1)
+
+  // The sentence the right-click menu is open on, or null when it is shut.
+  const [menuTarget, setMenuTarget] = useState<ChunkTarget | null>(null)
   if (trackedIdx !== idx) {
     setPrevIdx(trackedIdx)
     setTrackedIdx(idx)
@@ -121,6 +125,20 @@ export function Reader({ prefs, onPasteClick }: Props) {
     sc.scrollBy({ top: e.deltaY * unit })
   }
 
+  // Right-click on a sentence opens our menu; anywhere else the browser's own
+  // menu is left alone, so an illustration keeps "Save image as…" and the
+  // gutters behave normally. One listener on the pane rather than one per
+  // span: at ~10k sentences, per-span handlers are the cost this avoids.
+  const onContextMenu = (e: MouseEvent<HTMLElement>) => {
+    const span = (e.target as HTMLElement).closest?.("[data-chunk]")
+    if (!span) return
+    const i = Number(span.getAttribute("data-chunk"))
+    const chunk = chunks[i]
+    if (!chunk) return
+    e.preventDefault()
+    setMenuTarget({ x: e.clientX, y: e.clientY, chunk: i, text: chunk.text, marked: bookmarkSet.has(i) })
+  }
+
   if (empty) {
     return (
       <main className="flex flex-1 px-2 pb-28 sm:px-3">
@@ -168,6 +186,7 @@ export function Reader({ prefs, onPasteClick }: Props) {
         <div
           ref={scroller}
           tabIndex={0}
+          onContextMenu={onContextMenu}
           className="relative min-h-0 flex-1 overflow-y-auto outline-none [container-type:size] [scrollbar-gutter:stable] [scrollbar-width:thin]"
         >
           {/* The tail lets the last sentence reach the reading line: with the
@@ -201,7 +220,12 @@ export function Reader({ prefs, onPasteClick }: Props) {
                     <span
                       key={i}
                       id={`c${i}`}
-                      onClick={() => player.clickChunk(i)}
+                      data-chunk={i}
+                      // WebKit — which is what the desktop app runs — fires a
+                      // click alongside contextmenu for a Mac ctrl-click, so
+                      // without this guard opening the menu would also jump
+                      // the voice to that line.
+                      onClick={(e) => !e.ctrlKey && player.clickChunk(i)}
                       className={cn(
                         "rd-chunk cursor-pointer rounded-sm box-decoration-clone px-0.5",
                         bookmarkSet.has(i) && "rd-marked",
@@ -224,6 +248,11 @@ export function Reader({ prefs, onPasteClick }: Props) {
           </div>
         </div>
       </m.div>
+      <ChunkContextMenu
+        target={menuTarget}
+        onClose={() => setMenuTarget(null)}
+        onRestoreFocus={() => scroller.current?.focus({ preventScroll: true })}
+      />
     </main>
   )
 }
